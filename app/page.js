@@ -23,15 +23,18 @@ export default function CandidatoPage() {
 
     let docUrl = null;
 
-    if (file) {
-      const extensao = file.name.split('.').pop();
+   if (file) {
+      const extensao = file.name.split('.').pop().toLowerCase();
       const nomeUnico = `${Date.now()}-${Math.random().toString(36).substring(7)}.${extensao}`;
       
+      // Força o tipo correto mesmo se o navegador omitir
+      const tipoMime = file.type || (extensao === 'pdf' ? 'application/pdf' : 'image/jpeg');
+
       const { error: uploadError } = await supabase.storage
         .from('documentos-rh')
         .upload(nomeUnico, file, {
-          contentType: file.type,
-          upsert: false
+          contentType: tipoMime,
+          upsert: true
         });
 
       if (uploadError) {
@@ -40,11 +43,8 @@ export default function CandidatoPage() {
         return;
       }
 
-      const { data: publicData } = supabase.storage
-        .from('documentos-rh')
-        .getPublicUrl(nomeUnico);
-
-      docUrl = publicData.publicUrl;
+      // Salva diretamente o nome único do arquivo na coluna
+      docUrl = nomeUnico;
     }
 
     const { error: insertError } = await supabase.from('onboarding_candidates').insert([
