@@ -35,12 +35,11 @@ export default function Home() {
 
     let docUrl = null;
 
-    // 1. Upload do documento para o Supabase Storage (se selecionado)
     if (file) {
       const extensao = file.name.split('.').pop();
       const nomeUnico = `${Date.now()}-${Math.random().toString(36).substring(7)}.${extensao}`;
       
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('documentos-rh')
         .upload(nomeUnico, file, {
           contentType: file.type,
@@ -53,7 +52,6 @@ export default function Home() {
         return;
       }
 
-      // Obtém o link público do ficheiro enviado
       const { data: publicData } = supabase.storage
         .from('documentos-rh')
         .getPublicUrl(nomeUnico);
@@ -61,7 +59,6 @@ export default function Home() {
       docUrl = publicData.publicUrl;
     }
 
-    // 2. Registo dos dados do candidato na tabela
     const { error: insertError } = await supabase.from('onboarding_candidates').insert([
       {
         full_name: name,
@@ -69,7 +66,8 @@ export default function Home() {
         phone,
         job_title: job,
         department: dept,
-        document_url: docUrl
+        document_url: docUrl,
+        status: 'Pendente'
       }
     ]);
 
@@ -80,24 +78,67 @@ export default function Home() {
       setJob('');
       setDept('');
       setFile(null);
-      e.target.reset(); // Limpa o campo do ficheiro no formulário
+      e.target.reset();
       carregarCandidatos();
-      alert('Candidato e documento registados com sucesso!');
+      alert('Candidato registrado com sucesso!');
     } else {
-      alert('Erro ao guardar candidato: ' + insertError.message);
+      alert('Erro ao salvar: ' + insertError.message);
     }
 
     setLoading(false);
   }
 
+  // Função para aprovar o candidato
+  async function handleAprovar(id) {
+    const { error } = await supabase
+      .from('onboarding_candidates')
+      .update({ status: 'Aprovado', feedback_reason: null })
+      .eq('id', id);
+
+    if (error) {
+      alert('Erro ao aprovar: ' + error.message);
+    } else {
+      carregarCandidatos();
+    }
+  }
+
+  // Função para rejeitar com justificativa
+  async function handleRejeitar(id) {
+    const motivo = prompt('Informe o motivo da recusa ou correção necessária:');
+    if (!motivo) return; // Se cancelar o prompt, não faz nada
+
+    const { error } = await supabase
+      .from('onboarding_candidates')
+      .update({ status: 'Rejeitado / Pendência', feedback_reason: motivo })
+      .eq('id', id);
+
+    if (error) {
+      alert('Erro ao rejeitar: ' + error.message);
+    } else {
+      carregarCandidatos();
+    }
+  }
+
+  // Cor visual conforme o status
+  function getStatusBadge(status) {
+    if (status === 'Aprovado') {
+      return { bg: '#dcfce7', color: '#15803d', label: 'Aprovado' };
+    }
+    if (status?.includes('Rejeitado')) {
+      return { bg: '#fee2e2', color: '#b91c1c', label: status };
+    }
+    return { bg: '#fef3c7', color: '#b45309', label: 'Pendente' };
+  }
+
   return (
-    <main style={{ padding: '30px', fontFamily: 'sans-serif', maxWidth: '800px', margin: '0 auto', color: '#333' }}>
+    <main style={{ padding: '30px', fontFamily: 'sans-serif', maxWidth: '850px', margin: '0 auto', color: '#333' }}>
       <h1 style={{ borderBottom: '2px solid #0284c7', paddingBottom: '10px' }}>
         Portal de Admissão & Onboarding - RH
       </h1>
       
+      {/* Formulário de Cadastro */}
       <section style={{ background: '#f8fafc', padding: '20px', borderRadius: '8px', marginBottom: '30px', border: '1px solid #e2e8f0' }}>
-        <h2>Novo Contratado (Cadastrar Admissão)</h2>
+        <h2 style={{ marginTop: 0 }}>Novo Contratado (Cadastrar Admissão)</h2>
         <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '12px' }}>
           <input 
             placeholder="Nome Completo" 
@@ -137,7 +178,7 @@ export default function Home() {
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
             <label style={{ fontSize: '14px', fontWeight: 'bold', color: '#475569' }}>
-              Documento Admissional (RG, CNH ou Comprovativo em PDF/Imagem):
+              Documento Admissional (RG, CNH ou Comprovante):
             </label>
             <input 
               type="file" 
@@ -157,33 +198,70 @@ export default function Home() {
         </form>
       </section>
 
+      {/* Painel do RH / Lista de Candidatos */}
       <section>
-        <h2>Candidatos em Processo</h2>
+        <h2>Painel de Validação do RH</h2>
         {candidates.length === 0 ? (
-          <p>Nenhum candidato registado ainda.</p>
+          <p>Nenhum candidato registrado ainda.</p>
         ) : (
-          <ul style={{ listStyle: 'none', padding: 0 }}>
-            {candidates.map((c) => (
-              <li key={c.id} style={{ padding: '15px', border: '1px solid #cbd5e1', borderRadius: '6px', marginBottom: '12px', background: '#fff' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <strong style={{ fontSize: '16px' }}>{c.full_name}</strong> — {c.job_title} ({c.department})<br />
-                    <small style={{ color: '#64748b' }}>Contato: {c.email} | {c.phone} | Status: <b>{c.status}</b></small>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            {candidates.map((c) => {
+              const badge = getStatusBadge(c.status);
+              return (
+                <div key={c.id} style={{ padding: '18px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                        <strong style={{ fontSize: '17px' }}>{c.full_name}</strong>
+                        <span style={{ backgroundColor: badge.bg, color: badge.color, padding: '3px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold' }}>
+                          {badge.label}
+                        </span>
+                      </div>
+                      <div style={{ color: '#475569', fontSize: '14px', lineHeight: '1.5' }}>
+                        <b>Cargo:</b> {c.job_title} | <b>Depto:</b> {c.department}<br />
+                        <b>Contato:</b> {c.email} | {c.phone || 'Não informado'}
+                      </div>
+                      {c.feedback_reason && (
+                        <div style={{ marginTop: '8px', padding: '8px', background: '#fef2f2', borderLeft: '4px solid #ef4444', color: '#991b1b', fontSize: '13px' }}>
+                          <b>Motivo da Pendência:</b> {c.feedback_reason}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Ações do RH */}
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      {c.document_url ? (
+                        <a 
+                          href={c.document_url} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          style={{ padding: '7px 12px', background: '#e0f2fe', color: '#0369a1', textDecoration: 'none', borderRadius: '5px', fontWeight: 'bold', fontSize: '13px' }}
+                        >
+                          Ver Doc 📄
+                        </a>
+                      ) : (
+                        <span style={{ fontSize: '12px', color: '#94a3b8' }}>Sem anexo</span>
+                      )}
+
+                      <button 
+                        onClick={() => handleAprovar(c.id)}
+                        style={{ padding: '7px 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                      >
+                        Aprovar ✓
+                      </button>
+
+                      <button 
+                        onClick={() => handleRejeitar(c.id)}
+                        style={{ padding: '7px 12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                      >
+                        Rejeitar ✕
+                      </button>
+                    </div>
                   </div>
-                  {c.document_url && (
-                    <a 
-                      href={c.document_url} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      style={{ padding: '6px 12px', background: '#e0f2fe', color: '#0369a1', textDecoration: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '13px' }}
-                    >
-                      Ver Documento 📄
-                    </a>
-                  )}
                 </div>
-              </li>
-            ))}
-          </ul>
+              );
+            })}
+          </div>
         )}
       </section>
     </main>
