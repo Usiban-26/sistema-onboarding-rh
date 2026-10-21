@@ -42,7 +42,10 @@ export default function Home() {
       
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('documentos-rh')
-        .upload(nomeUnico, file);
+        .upload(nomeUnico, file, {
+          contentType: file.type,
+          upsert: false
+        });
 
       if (uploadError) {
         alert('Erro ao enviar documento: ' + uploadError.message);
