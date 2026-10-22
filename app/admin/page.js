@@ -13,19 +13,50 @@ export default function AdminPage() {
   const [autenticado, setAutenticado] = useState(false);
   const [senhaInput, setSenhaInput] = useState('');
   const [candidates, setCandidates] = useState([]);
+  const [candidateDocs, setCandidateDocs] = useState({});
+  const [requiredDocs, setRequiredDocs] = useState([]);
   const [filtro, setFiltro] = useState('Todos');
+  const [abaAtiva, setAbaAtiva] = useState('candidatos'); // 'candidatos' ou 'documentos'
 
-  async function carregarCandidatos() {
-    const { data } = await supabase
+  // Novo documento a cadastrar
+  const [novoDocTitulo, setNovoDocTitulo] = useState('');
+  const [novoDocDesc, setNovoDocDesc] = useState('');
+  const [novoDocObrigatorio, setNovoDocObrigatorio] = useState(true);
+
+  async function carregarDados() {
+    // 1. Carrega candidatos
+    const { data: candData } = await supabase
       .from('onboarding_candidates')
       .select('*')
       .order('created_at', { ascending: false });
-    if (data) setCandidates(data);
+    if (candData) setCandidates(candData);
+
+    // 2. Carrega todos os documentos enviados pelos candidatos
+    const { data: docsData } = await supabase
+      .from('candidate_documents')
+      .select('*');
+    
+    if (docsData) {
+      const agrupados = {};
+      docsData.forEach(d => {
+        if (!agrupados[d.candidate_id]) agrupados[d.candidate_id] = [];
+        agrupados[d.candidate_id].push(d);
+      });
+      setCandidateDocs(agrupados);
+    }
+
+    // 3. Carrega lista de documentos exigidos
+    const { data: reqData } = await supabase
+      .from('required_documents')
+      .select('*')
+      .eq('is_active', true)
+      .order('created_at', { ascending: true });
+    if (reqData) setRequiredDocs(reqData);
   }
 
   useEffect(() => {
     if (autenticado) {
-      carregarCandidatos();
+      carregarDados();
     }
   }, [autenticado]);
 
@@ -44,7 +75,7 @@ export default function AdminPage() {
       .update({ status: 'Aprovado', feedback_reason: null })
       .eq('id', id);
 
-    if (!error) carregarCandidatos();
+    if (!error) carregarDados();
   }
 
   async function handleRejeitar(id) {
@@ -56,7 +87,43 @@ export default function AdminPage() {
       .update({ status: 'Rejeitado / Pendência', feedback_reason: motivo })
       .eq('id', id);
 
-    if (!error) carregarCandidatos();
+    if (!error) carregarDados();
+  }
+
+  // Adicionar novo tipo de documento exigido
+  async function handleAdicionarDocExigido(e) {
+    e.preventDefault();
+    if (!novoDocTitulo) return;
+
+    const { error } = await supabase.from('required_documents').insert([
+      {
+        title: novoDocTitulo,
+        description: novoDocDesc,
+        is_required: novoDocObrigatorio,
+        is_active: true
+      }
+    ]);
+
+    if (!error) {
+      setNovoDocTitulo('');
+      setNovoDocDesc('');
+      carregarDados();
+      alert('Documento adicionado ao checklist com sucesso!');
+    } else {
+      alert('Erro: ' + error.message);
+    }
+  }
+
+  // Desativar/Remover documento do checklist
+  async function handleDesativarDocExigido(id) {
+    if (!confirm('Deseja realmente remover este documento da lista de exigências?')) return;
+
+    const { error } = await supabase
+      .from('required_documents')
+      .update({ is_active: false })
+      .eq('id', id);
+
+    if (!error) carregarDados();
   }
 
   function getStatusBadge(status) {
@@ -99,11 +166,11 @@ export default function AdminPage() {
   }
 
   return (
-    <main style={{ padding: '30px 20px', fontFamily: 'sans-serif', maxWidth: '900px', margin: '0 auto', color: '#1e293b' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #e2e8f0', paddingBottom: '16px', marginBottom: '24px' }}>
+    <main style={{ padding: '30px 20px', fontFamily: 'sans-serif', maxWidth: '950px', margin: '0 auto', color: '#1e293b' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #e2e8f0', paddingBottom: '16px', marginBottom: '20px' }}>
         <div>
           <h1 style={{ margin: 0, color: '#0284c7' }}>Painel do RH - Gestão de Admissões</h1>
-          <small style={{ color: '#64748b' }}>Conferência e validação de documentação admissional</small>
+          <small style={{ color: '#64748b' }}>Usiban | Gestão dinâmica de documentos e candidatos</small>
         </div>
         <button 
           onClick={() => setAutenticado(false)} 
@@ -113,84 +180,218 @@ export default function AdminPage() {
         </button>
       </div>
 
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
-        {['Todos', 'Pendentes', 'Aprovados', 'Com Pendência'].map(status => (
-          <button 
-            key={status} 
-            onClick={() => setFiltro(status)} 
-            style={{
-              padding: '6px 14px',
-              borderRadius: '20px',
-              border: '1px solid #cbd5e1',
-              background: filtro === status ? '#0284c7' : '#fff',
-              color: filtro === status ? '#fff' : '#475569',
-              cursor: 'pointer',
-              fontWeight: '500',
-              fontSize: '13px'
-            }}
-          >
-            {status}
-          </button>
-        ))}
+      {/* Navegação entre Abas */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+        <button 
+          onClick={() => setAbaAtiva('candidatos')}
+          style={{
+            padding: '10px 18px',
+            border: 'none',
+            borderBottom: abaAtiva === 'candidatos' ? '3px solid #0284c7' : 'none',
+            background: abaAtiva === 'candidatos' ? '#e0f2fe' : '#f1f5f9',
+            color: abaAtiva === 'candidatos' ? '#0369a1' : '#475569',
+            fontWeight: 'bold',
+            borderRadius: '6px 6px 0 0',
+            cursor: 'pointer'
+          }}
+        >
+          👥 Candidatos & Validação
+        </button>
+        <button 
+          onClick={() => setAbaAtiva('documentos')}
+          style={{
+            padding: '10px 18px',
+            border: 'none',
+            borderBottom: abaAtiva === 'documentos' ? '3px solid #0284c7' : 'none',
+            background: abaAtiva === 'documentos' ? '#e0f2fe' : '#f1f5f9',
+            color: abaAtiva === 'documentos' ? '#0369a1' : '#475569',
+            fontWeight: 'bold',
+            borderRadius: '6px 6px 0 0',
+            cursor: 'pointer'
+          }}
+        >
+          📋 Configurar Documentos Exigidos
+        </button>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        {candidatosFiltrados.length === 0 ? (
-          <p style={{ color: '#64748b' }}>Nenhum candidato encontrado nesta categoria.</p>
-        ) : (
-          candidatosFiltrados.map((c) => {
-            const badge = getStatusBadge(c.status);
-            return (
-              <div key={c.id} style={{ padding: '16px 20px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
-                      <strong style={{ fontSize: '16px' }}>{c.full_name}</strong>
-                      <span style={{ backgroundColor: badge.bg, color: badge.color, padding: '3px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold' }}>
-                        {badge.label}
-                      </span>
-                    </div>
-                    <div style={{ color: '#475569', fontSize: '14px', lineHeight: '1.4' }}>
-                      <b>Cargo:</b> {c.job_title} | <b>Depto:</b> {c.department}<br />
-                      <b>Contato:</b> {c.email} | {c.phone}
-                    </div>
-                    {c.feedback_reason && (
-                      <div style={{ marginTop: '8px', padding: '8px', background: '#fef2f2', borderLeft: '4px solid #ef4444', color: '#991b1b', fontSize: '13px' }}>
-                        <b>Motivo:</b> {c.feedback_reason}
+      {/* ABA 1: LISTAGEM DE CANDIDATOS */}
+      {abaAtiva === 'candidatos' && (
+        <div>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '18px' }}>
+            {['Todos', 'Pendentes', 'Aprovados', 'Com Pendência'].map(status => (
+              <button 
+                key={status} 
+                onClick={() => setFiltro(status)} 
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '20px',
+                  border: '1px solid #cbd5e1',
+                  background: filtro === status ? '#0284c7' : '#fff',
+                  color: filtro === status ? '#fff' : '#475569',
+                  cursor: 'pointer',
+                  fontWeight: '500',
+                  fontSize: '13px'
+                }}
+              >
+                {status}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {candidatosFiltrados.length === 0 ? (
+              <p style={{ color: '#64748b' }}>Nenhum candidato encontrado nesta categoria.</p>
+            ) : (
+              candidatosFiltrados.map((c) => {
+                const badge = getStatusBadge(c.status);
+                const docsEnviados = candidateDocs[c.id] || [];
+
+                return (
+                  <div key={c.id} style={{ padding: '18px 20px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                          <strong style={{ fontSize: '17px' }}>{c.full_name}</strong>
+                          <span style={{ backgroundColor: badge.bg, color: badge.color, padding: '3px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold' }}>
+                            {badge.label}
+                          </span>
+                        </div>
+                        <div style={{ color: '#475569', fontSize: '14px', lineHeight: '1.4' }}>
+                          <b>Cargo:</b> {c.job_title} | <b>Depto:</b> {c.department}<br />
+                          <b>Contato:</b> {c.email} | {c.phone}
+                        </div>
+                        {c.feedback_reason && (
+                          <div style={{ marginTop: '8px', padding: '8px', background: '#fef2f2', borderLeft: '4px solid #ef4444', color: '#991b1b', fontSize: '13px' }}>
+                            <b>Motivo:</b> {c.feedback_reason}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
 
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    {c.document_url && (
-                      <a 
-                        href={c.document_url} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        style={{ padding: '7px 12px', background: '#e0f2fe', color: '#0369a1', textDecoration: 'none', borderRadius: '5px', fontWeight: 'bold', fontSize: '13px' }}
-                      >
-                        Ver Documento 📄
-                      </a>
-                    )}
-                    <button 
-                      onClick={() => handleAprovar(c.id)}
-                      style={{ padding: '7px 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
-                    >
-                      Aprovar ✓
-                    </button>
-                    <button 
-                      onClick={() => handleRejeitar(c.id)}
-                      style={{ padding: '7px 12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
-                    >
-                      Rejeitar ✕
-                    </button>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <button 
+                          onClick={() => handleAprovar(c.id)}
+                          style={{ padding: '7px 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                        >
+                          Aprovar ✓
+                        </button>
+                        <button 
+                          onClick={() => handleRejeitar(c.id)}
+                          style={{ padding: '7px 12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                        >
+                          Rejeitar ✕
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Lista de Documentos Anexados por este Candidato */}
+                    <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px dashed #cbd5e1' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#334155', display: 'block', marginBottom: '8px' }}>
+                        Documentos Enviados ({docsEnviados.length}):
+                      </span>
+                      
+                      {docsEnviados.length === 0 ? (
+                        c.document_url ? (
+                          <a 
+                            href={c.document_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            style={{ display: 'inline-block', padding: '5px 10px', background: '#e0f2fe', color: '#0369a1', textDecoration: 'none', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold' }}
+                          >
+                            Documento Único (Legado) 📄
+                          </a>
+                        ) : (
+                          <span style={{ fontSize: '12px', color: '#94a3b8' }}>Nenhum documento anexado.</span>
+                        )
+                      ) : (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                          {docsEnviados.map(d => (
+                            <a
+                              key={d.id}
+                              href={d.document_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: '#f0f9ff', border: '1px solid #bae6fd', color: '#0284c7', textDecoration: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: '500' }}
+                            >
+                              📄 {d.document_name}
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ABA 2: GERENCIAMENTO DE DOCUMENTOS EXIGIDOS */}
+      {abaAtiva === 'documentos' && (
+        <div>
+          <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
+            <h3 style={{ marginTop: 0, color: '#0f172a' }}>+ Cadastrar Novo Documento Exigido</h3>
+            <p style={{ color: '#64748b', fontSize: '13px' }}>Ao cadastrar um documento aqui, o campo aparecerá instantaneamente para todos os novos candidatos que acessarem o formulário.</p>
+
+            <form onSubmit={handleAdicionarDocExigido} style={{ display: 'grid', gap: '12px', maxWidth: '600px' }}>
+              <input 
+                placeholder="Nome do Documento (Ex: Título de Eleitor, Certidão de Casamento)"
+                value={novoDocTitulo}
+                onChange={e => setNovoDocTitulo(e.target.value)}
+                required
+                style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+              />
+              <input 
+                placeholder="Instruções para o candidato (Ex: Frente e verso nítidos)"
+                value={novoDocDesc}
+                onChange={e => setNovoDocDesc(e.target.value)}
+                style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+              />
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: 'pointer' }}>
+                <input 
+                  type="checkbox" 
+                  checked={novoDocObrigatorio}
+                  onChange={e => setNovoDocObrigatorio(e.target.checked)}
+                />
+                Envio obrigatório para o candidato
+              </label>
+              <button 
+                type="submit"
+                style={{ padding: '10px 16px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', width: 'fit-content' }}
+              >
+                Salvar Exigência
+              </button>
+            </form>
+          </div>
+
+          <h3 style={{ color: '#0f172a' }}>Documentos Atualmente Exigidos</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {requiredDocs.length === 0 ? (
+              <p style={{ color: '#64748b' }}>Nenhum documento cadastrado.</p>
+            ) : (
+              requiredDocs.map(doc => (
+                <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                  <div>
+                    <strong style={{ fontSize: '15px' }}>{doc.title}</strong>
+                    {doc.is_required && (
+                      <span style={{ marginLeft: '8px', background: '#fef2f2', color: '#b91c1c', fontSize: '11px', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                        Obrigatório
+                      </span>
+                    )}
+                    {doc.description && <p style={{ margin: '4px 0 0 0', color: '#64748b', fontSize: '13px' }}>{doc.description}</p>}
+                  </div>
+                  <button 
+                    onClick={() => handleDesativarDocExigido(doc.id)}
+                    style={{ padding: '6px 10px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                  >
+                    Excluir / Desativar
+                  </button>
                 </div>
-              </div>
-            );
-          })
-        )}
-      </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }
