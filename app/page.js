@@ -23,28 +23,38 @@ export default function CandidatoPage() {
 
     let docUrl = null;
 
-   if (file) {
-      const extensao = file.name.split('.').pop().toLowerCase();
-      const nomeUnico = `${Date.now()}-${Math.random().toString(36).substring(7)}.${extensao}`;
-      
-      // Força o tipo correto mesmo se o navegador omitir
-      const tipoMime = file.type || (extensao === 'pdf' ? 'application/pdf' : 'image/jpeg');
+    if (file) {
+      try {
+        const extensao = file.name.split('.').pop().toLowerCase();
+        const nomeUnico = `${Date.now()}-${Math.random().toString(36).substring(7)}.${extensao}`;
+        
+        // Converte o arquivo para ArrayBuffer para garantir integridade total dos bytes
+        const fileBuffer = await file.arrayBuffer();
 
-      const { error: uploadError } = await supabase.storage
-        .from('documentos-rh')
-        .upload(nomeUnico, file, {
-          contentType: tipoMime,
-          upsert: true
-        });
+        const { error: uploadError } = await supabase.storage
+          .from('documentos-rh')
+          .upload(nomeUnico, fileBuffer, {
+            contentType: file.type || 'application/pdf',
+            upsert: true
+          });
 
-      if (uploadError) {
-        alert('Erro ao enviar documento: ' + uploadError.message);
+        if (uploadError) {
+          alert('Erro no envio do documento: ' + uploadError.message);
+          setLoading(false);
+          return;
+        }
+
+        // Obtém o link público direto
+        const { data: publicData } = supabase.storage
+          .from('documentos-rh')
+          .getPublicUrl(nomeUnico);
+
+        docUrl = publicData.publicUrl;
+      } catch (err) {
+        alert('Erro ao processar arquivo: ' + err.message);
         setLoading(false);
         return;
       }
-
-      // Salva diretamente o nome único do arquivo na coluna
-      docUrl = nomeUnico;
     }
 
     const { error: insertError } = await supabase.from('onboarding_candidates').insert([
@@ -147,7 +157,7 @@ export default function CandidatoPage() {
           </div>
 
           <div>
-            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', fontSize: '14px' }}>Documento Admissional (RG, CNH ou CTPS em PDF/Imagem) *</label>
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', fontSize: '14px' }}>Documento Admissional (PDF ou Imagem) *</label>
             <input 
               type="file" 
               accept=".pdf,image/*" 
