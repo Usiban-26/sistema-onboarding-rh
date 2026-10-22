@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -13,68 +13,86 @@ export default function CandidatoPage() {
   const [phone, setPhone] = useState('');
   const [job, setJob] = useState('');
   const [dept, setDept] = useState('');
+  const [requiredDocs, setRequiredDocs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [sucesso, setSucesso] = useState(false);
+
+  // Carrega os documentos que o RH configurou
+  useEffect(() => {
+    async function carregarDocumentosExigidos() {
+      const { data } = await supabase
+        .from('required_documents')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: true });
+      if (data) setRequiredDocs(data);
+    }
+    carregarDocumentosExigidos();
+  }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
     setLoading(true);
 
-    // Captura o arquivo diretamente do campo do formulário
-    const fileInput = e.target.elements.documento;
-    const selectedFile = fileInput?.files?.[0];
-
-    if (!selectedFile || selectedFile.size === 0) {
-      alert('Por favor, selecione um arquivo válido antes de enviar.');
-      setLoading(false);
-      return;
-    }
-
-    let docUrl = null;
-
     try {
-      const extensao = selectedFile.name.split('.').pop().toLowerCase();
-      const nomeUnico = `${Date.now()}-${Math.random().toString(36).substring(7)}.${extensao}`;
+      // 1. Cadastra os dados básicos do candidato
+      const { data: candData, error: candError } = await supabase
+        .from('onboarding_candidates')
+        .insert([
+          {
+            full_name: name,
+            email,
+            phone,
+            job_title: job,
+            department: dept,
+            status: 'Pendente'
+          }
+        ])
+        .select()
+        .single();
 
-      // Upload direto do arquivo nativo com contentType explícito
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('documentos-rh')
-        .upload(nomeUnico, selectedFile, {
-          contentType: selectedFile.type || 'application/pdf',
-          upsert: true
-        });
-
-      if (uploadError) {
-        alert('Erro no envio do documento: ' + uploadError.message);
+      if (candError || !candData) {
+        alert('Erro ao gravar dados do candidato: ' + (candError?.message || 'Falha desconhecida'));
         setLoading(false);
         return;
       }
 
-      // Obtém o link público direto
-      const { data: publicData } = supabase.storage
-        .from('documentos-rh')
-        .getPublicUrl(nomeUnico);
+      const candidateId = candData.id;
 
-      docUrl = publicData.publicUrl;
+      // 2. Faz o upload individual de cada documento enviado
+      for (const doc of requiredDocs) {
+        const inputElement = e.target.elements[`doc_${doc.id}`];
+        const selectedFile = inputElement?.files?.[0];
 
-      // Grava no banco de dados
-      const { error: insertError } = await supabase.from('onboarding_candidates').insert([
-        {
-          full_name: name,
-          email,
-          phone,
-          job_title: job,
-          department: dept,
-          document_url: docUrl,
-          status: 'Pendente'
+        if (selectedFile && selectedFile.size > 0) {
+          const extensao = selectedFile.name.split('.').pop().toLowerCase();
+          const nomeUnico = `${Date.now()}-${Math.random().toString(36).substring(7)}.${extensao}`;
+
+          const { error: uploadError } = await supabase.storage
+            .from('documentos-rh')
+            .upload(nomeUnico, selectedFile, {
+              contentType: selectedFile.type || 'application/pdf',
+              upsert: true
+            });
+
+          if (!uploadError) {
+            const { data: publicData } = supabase.storage
+              .from('documentos-rh')
+              .getPublicUrl(nomeUnico);
+
+            // Grava a relação do documento com o candidato
+            await supabase.from('candidate_documents').insert([
+              {
+                candidate_id: candidateId,
+                document_name: doc.title,
+                document_url: publicData.publicUrl
+              }
+            ]);
+          }
         }
-      ]);
-
-      if (!insertError) {
-        setSucesso(true);
-      } else {
-        alert('Erro ao gravar dados do candidato: ' + insertError.message);
       }
+
+      setSucesso(true);
     } catch (err) {
       alert('Erro inesperado: ' + err.message);
     }
@@ -83,15 +101,15 @@ export default function CandidatoPage() {
   }
 
   return (
-    <main style={{ padding: '40px 20px', fontFamily: 'sans-serif', maxWidth: '650px', margin: '0 auto', color: '#1e293b' }}>
+    <main style={{ padding: '40px 20px', fontFamily: 'sans-serif', maxWidth: '680px', margin: '0 auto', color: '#1e293b' }}>
       <header style={{ textAlign: 'center', marginBottom: '30px' }}>
-        <h1 style={{ color: '#0284c7', margin: '0 0 8px 0' }}>Portal de Admissão</h1>
-        <p style={{ color: '#64748b', margin: 0 }}>Preencha seus dados e anexe os documentos para darmos início à sua contratação.</p>
+        <h1 style={{ color: '#0284c7', margin: '0 0 8px 0' }}>Portal de Admissão - Usiban</h1>
+        <p style={{ color: '#64748b', margin: 0 }}>Preencha seus dados e envie a documentação solicitada abaixo.</p>
       </header>
 
       {sucesso ? (
         <div style={{ background: '#ecfdf5', border: '1px solid #6ee7b7', padding: '30px', borderRadius: '8px', textAlign: 'center' }}>
-          <h2 style={{ color: '#047857', marginTop: 0 }}>Dados enviados com sucesso!</h2>
+          <h2 style={{ color: '#047857', marginTop: 0 }}>Dados e Documentos Enviados com Sucesso!</h2>
           <p style={{ color: '#065f46' }}>Nossa equipe de Recursos Humanos analisará a sua documentação em breve.</p>
           <button 
             onClick={() => setSucesso(false)} 
@@ -101,7 +119,9 @@ export default function CandidatoPage() {
           </button>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} style={{ background: '#ffffff', padding: '28px', borderRadius: '10px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', display: 'grid', gap: '14px', border: '1px solid #e2e8f0' }}>
+        <form onSubmit={handleSubmit} style={{ background: '#ffffff', padding: '28px', borderRadius: '10px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', display: 'grid', gap: '16px', border: '1px solid #e2e8f0' }}>
+          <h3 style={{ margin: '0 0 4px 0', color: '#0f172a', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>1. Dados Pessoais</h3>
+          
           <div>
             <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', fontSize: '14px' }}>Nome Completo *</label>
             <input 
@@ -144,7 +164,7 @@ export default function CandidatoPage() {
                 value={job} 
                 onChange={e => setJob(e.target.value)} 
                 required 
-                placeholder="Ex: Auxiliar de Produção" 
+                placeholder="Ex: Operador, Auxiliar, Técnico" 
                 style={{ width: '100%', boxSizing: 'border-box', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }} 
               />
             </div>
@@ -154,32 +174,46 @@ export default function CandidatoPage() {
                 value={dept} 
                 onChange={e => setDept(e.target.value)} 
                 required 
-                placeholder="Ex: Manutenção, RH, Logística" 
+                placeholder="Ex: Manutenção, Campo, Indústria" 
                 style={{ width: '100%', boxSizing: 'border-box', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }} 
               />
             </div>
           </div>
 
-          <div>
-            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', fontSize: '14px' }}>Documento Admissional (RG, CNH ou Comprovante) *</label>
-            <input 
-              name="documento"
-              type="file" 
-              accept=".pdf,image/*" 
-              required
-              style={{ width: '100%', boxSizing: 'border-box', padding: '9px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px' }} 
-            />
-          </div>
+          <h3 style={{ margin: '14px 0 4px 0', color: '#0f172a', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px' }}>2. Documentação Admissional</h3>
+
+          {requiredDocs.length === 0 ? (
+            <p style={{ color: '#64748b', fontSize: '13px' }}>Carregando lista de documentos solicitados...</p>
+          ) : (
+            <div style={{ display: 'grid', gap: '14px' }}>
+              {requiredDocs.map(doc => (
+                <div key={doc.id} style={{ background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: 'bold', fontSize: '14px' }}>
+                    {doc.title} {doc.is_required && <span style={{ color: '#ef4444' }}>*</span>}
+                  </label>
+                  {doc.description && <span style={{ display: 'block', color: '#64748b', fontSize: '12px', marginBottom: '6px' }}>{doc.description}</span>}
+                  <input 
+                    name={`doc_${doc.id}`}
+                    type="file" 
+                    accept=".pdf,image/*" 
+                    required={doc.is_required}
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '7px', background: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '13px' }} 
+                  />
+                </div>
+              ))}
+            </div>
+          )}
 
           <button 
             type="submit" 
             disabled={loading} 
-            style={{ marginTop: '10px', padding: '13px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px' }}
+            style={{ marginTop: '10px', padding: '14px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px' }}
           >
             {loading ? 'Enviando documentação...' : 'Concluir e Enviar ao RH'}
           </button>
         </form>
       )}
+
       <footer style={{ textAlign: 'center', marginTop: '30px' }}>
         <a href="/admin" style={{ color: '#94a3b8', fontSize: '12px', textDecoration: 'none' }}>Acesso Restrito RH</a>
       </footer>
