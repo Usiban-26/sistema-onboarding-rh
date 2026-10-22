@@ -13,7 +13,6 @@ export default function CandidatoPage() {
   const [phone, setPhone] = useState('');
   const [job, setJob] = useState('');
   const [dept, setDept] = useState('');
-  const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [sucesso, setSucesso] = useState(false);
 
@@ -21,49 +20,63 @@ export default function CandidatoPage() {
     e.preventDefault();
     setLoading(true);
 
+    // Captura o arquivo diretamente do campo do formulário
+    const fileInput = e.target.elements.documento;
+    const selectedFile = fileInput?.files?.[0];
+
+    if (!selectedFile || selectedFile.size === 0) {
+      alert('Por favor, selecione um arquivo válido antes de enviar.');
+      setLoading(false);
+      return;
+    }
+
     let docUrl = null;
 
-    if (file) {
-      const extensao = file.name.split('.').pop();
+    try {
+      const extensao = selectedFile.name.split('.').pop().toLowerCase();
       const nomeUnico = `${Date.now()}-${Math.random().toString(36).substring(7)}.${extensao}`;
-      
-      // Trecho idêntico ao que funcionou anteriormente:
+
+      // Upload direto do arquivo nativo com contentType explícito
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('documentos-rh')
-        .upload(nomeUnico, file, {
-          contentType: file.type,
-          upsert: false
+        .upload(nomeUnico, selectedFile, {
+          contentType: selectedFile.type || 'application/pdf',
+          upsert: true
         });
 
       if (uploadError) {
-        alert('Erro ao enviar documento: ' + uploadError.message);
+        alert('Erro no envio do documento: ' + uploadError.message);
         setLoading(false);
         return;
       }
 
+      // Obtém o link público direto
       const { data: publicData } = supabase.storage
         .from('documentos-rh')
         .getPublicUrl(nomeUnico);
 
       docUrl = publicData.publicUrl;
-    }
 
-    const { error: insertError } = await supabase.from('onboarding_candidates').insert([
-      {
-        full_name: name,
-        email,
-        phone,
-        job_title: job,
-        department: dept,
-        document_url: docUrl,
-        status: 'Pendente'
+      // Grava no banco de dados
+      const { error: insertError } = await supabase.from('onboarding_candidates').insert([
+        {
+          full_name: name,
+          email,
+          phone,
+          job_title: job,
+          department: dept,
+          document_url: docUrl,
+          status: 'Pendente'
+        }
+      ]);
+
+      if (!insertError) {
+        setSucesso(true);
+      } else {
+        alert('Erro ao gravar dados do candidato: ' + insertError.message);
       }
-    ]);
-
-    if (!insertError) {
-      setSucesso(true);
-    } else {
-      alert('Erro ao enviar cadastro: ' + insertError.message);
+    } catch (err) {
+      alert('Erro inesperado: ' + err.message);
     }
 
     setLoading(false);
@@ -150,10 +163,10 @@ export default function CandidatoPage() {
           <div>
             <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', fontSize: '14px' }}>Documento Admissional (RG, CNH ou Comprovante) *</label>
             <input 
+              name="documento"
               type="file" 
               accept=".pdf,image/*" 
               required
-              onChange={e => setFile(e.target.files[0])} 
               style={{ width: '100%', boxSizing: 'border-box', padding: '9px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px' }} 
             />
           </div>
