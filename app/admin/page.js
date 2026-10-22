@@ -7,7 +7,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 );
 
-// DEFINA SUA SENHA DE SUPERVISOR AQUI:
 const SENHA_MESTRA_RH = 'rh2026';
 
 export default function AdminPage() {
@@ -58,27 +57,6 @@ export default function AdminPage() {
       .eq('id', id);
 
     if (!error) carregarCandidatos();
-  }
-
-  // Função para abrir o documento gerando um link assinado na hora
-  async function abrirDocumento(urlCompleta) {
-    try {
-      // Extrai apenas o nome do ficheiro do link
-      const nomeFicheiro = urlCompleta.split('/').pop();
-
-      const { data, error } = await supabase.storage
-        .from('documentos-rh')
-        .createSignedUrl(nomeFicheiro, 3600); // Link válido por 1 hora
-
-      if (error || !data?.signedUrl) {
-        // Se falhar o signedUrl, abre o link original como fallback
-        window.open(urlCompleta, '_blank');
-      } else {
-        window.open(data.signedUrl, '_blank');
-      }
-    } catch (err) {
-      window.open(urlCompleta, '_blank');
-    }
   }
 
   function getStatusBadge(status) {
@@ -187,12 +165,14 @@ export default function AdminPage() {
 
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     {c.document_url && (
-                      <button 
-                        onClick={() => abrirDocumento(c.document_url)}
-                        style={{ padding: '7px 12px', background: '#e0f2fe', color: '#0369a1', border: 'none', borderRadius: '5px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}
+                      <a 
+                        href={c.document_url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        style={{ padding: '7px 12px', background: '#e0f2fe', color: '#0369a1', textDecoration: 'none', borderRadius: '5px', fontWeight: 'bold', fontSize: '13px' }}
                       >
                         Ver Documento 📄
-                      </button>
+                      </a>
                     )}
                     <button 
                       onClick={() => handleAprovar(c.id)}
