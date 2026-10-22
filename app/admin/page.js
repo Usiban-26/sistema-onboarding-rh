@@ -14,7 +14,6 @@ export default function AdminPage() {
   const [senhaInput, setSenhaInput] = useState('');
   const [candidates, setCandidates] = useState([]);
   const [filtro, setFiltro] = useState('Todos');
-  const [baixando, setBaixando] = useState(null);
 
   async function carregarCandidatos() {
     const { data } = await supabase
@@ -35,7 +34,7 @@ export default function AdminPage() {
     if (senhaInput === SENHA_MESTRA_RH) {
       setAutenticado(true);
     } else {
-      alert('Palavra-passe incorreta!');
+      alert('Senha incorreta!');
     }
   }
 
@@ -49,7 +48,7 @@ export default function AdminPage() {
   }
 
   async function handleRejeitar(id) {
-    const motivo = prompt('Indique o motivo da pendência / recusa:');
+    const motivo = prompt('Informe o motivo da pendência / recusa:');
     if (!motivo) return;
 
     const { error } = await supabase
@@ -58,42 +57,6 @@ export default function AdminPage() {
       .eq('id', id);
 
     if (!error) carregarCandidatos();
-  }
-
-  // Descarrega o ficheiro diretamente via Blob binário sem falha de cabeçalho
-  async function descarregarDocumento(urlCompleta, id) {
-    try {
-      setBaixando(id);
-      const nomeFicheiro = urlCompleta.split('/').pop().split('?')[0];
-
-      const { data, error } = await supabase.storage
-        .from('documentos-rh')
-        .download(nomeFicheiro);
-
-      if (error || !data) {
-        alert('Erro ao transferir documento: ' + (error?.message || 'Ficheiro não encontrado'));
-        setBaixando(null);
-        return;
-      }
-
-      // Cria um link local para o ficheiro descarregado
-      const blob = new Blob([data], { type: 'application/pdf' });
-      const blobUrl = URL.createObjectURL(blob);
-
-      // Abre numa nova aba ou força a visualização
-      const novaAba = window.open(blobUrl, '_blank');
-      if (!novaAba) {
-        // Caso o bloqueador de pop-ups impeça nova aba, cria download direto
-        const link = document.createElement('a');
-        link.href = blobUrl;
-        link.download = nomeFicheiro;
-        link.click();
-      }
-    } catch (err) {
-      alert('Erro inesperado: ' + err.message);
-    } finally {
-      setBaixando(null);
-    }
   }
 
   function getStatusBadge(status) {
@@ -115,10 +78,10 @@ export default function AdminPage() {
       <main style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif', background: '#f8fafc' }}>
         <form onSubmit={handleLogin} style={{ background: '#fff', padding: '30px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', width: '320px', border: '1px solid #e2e8f0' }}>
           <h2 style={{ marginTop: 0, color: '#0f172a', textAlign: 'center' }}>Acesso do RH</h2>
-          <p style={{ color: '#64748b', fontSize: '13px', textAlign: 'center' }}>Introduza a palavra-passe mestre para aceder ao painel.</p>
+          <p style={{ color: '#64748b', fontSize: '13px', textAlign: 'center' }}>Digite a senha mestre para acessar o painel de aprovações.</p>
           <input 
             type="password" 
-            placeholder="Palavra-passe" 
+            placeholder="Senha de acesso" 
             value={senhaInput} 
             onChange={e => setSenhaInput(e.target.value)} 
             required 
@@ -189,7 +152,7 @@ export default function AdminPage() {
                     </div>
                     <div style={{ color: '#475569', fontSize: '14px', lineHeight: '1.4' }}>
                       <b>Cargo:</b> {c.job_title} | <b>Depto:</b> {c.department}<br />
-                      <b>Contacto:</b> {c.email} | {c.phone}
+                      <b>Contato:</b> {c.email} | {c.phone}
                     </div>
                     {c.feedback_reason && (
                       <div style={{ marginTop: '8px', padding: '8px', background: '#fef2f2', borderLeft: '4px solid #ef4444', color: '#991b1b', fontSize: '13px' }}>
@@ -200,13 +163,14 @@ export default function AdminPage() {
 
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     {c.document_url && (
-                      <button 
-                        onClick={() => descarregarDocumento(c.document_url, c.id)}
-                        disabled={baixando === c.id}
-                        style={{ padding: '7px 12px', background: '#e0f2fe', color: '#0369a1', border: 'none', borderRadius: '5px', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}
+                      <a 
+                        href={c.document_url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        style={{ padding: '7px 12px', background: '#e0f2fe', color: '#0369a1', textDecoration: 'none', borderRadius: '5px', fontWeight: 'bold', fontSize: '13px' }}
                       >
-                        {baixando === c.id ? 'A abrir...' : 'Ver Documento 📄'}
-                      </button>
+                        Ver Documento 📄
+                      </a>
                     )}
                     <button 
                       onClick={() => handleAprovar(c.id)}
