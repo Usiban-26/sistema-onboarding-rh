@@ -44,6 +44,15 @@
 - `document_url`: Text (URL pública direta no bucket)
 - `created_at`: Timestamp
 
+  ### Tabela `required_personal_fields`
+- `id`: UUID (Primary Key)
+- `label`: Text (Nome da pergunta, ex: PIS, Nome da Mãe)
+- `field_type`: Text ('text', 'email', 'tel', 'date', 'number')
+- `placeholder`: Text
+- `is_required`: Boolean
+- `is_active`: Boolean
+- `created_at`: Timestamp
+
 ## 4. Variáveis de Ambiente Necessárias (Vercel)
 - `NEXT_PUBLIC_SUPABASE_URL`: URL do projeto no Supabase.
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Chave anônima de leitura/escrita com RLS.
