@@ -16,26 +16,40 @@ export default function AdminPage() {
   const [candidateDocs, setCandidateDocs] = useState({});
   const [requiredDocs, setRequiredDocs] = useState([]);
   const [requiredFields, setRequiredFields] = useState([]);
+  const [invites, setInvites] = useState([]);
   const [filtro, setFiltro] = useState('Todos');
-  const [abaAtiva, setAbaAtiva] = useState('candidatos');
+  const [abaAtiva, setAbaAtiva] = useState('candidatos'); // 'candidatos' | 'convites' | 'campos' | 'documentos'
 
+  // Documentos Exigidos
   const [novoDocTitulo, setNovoDocTitulo] = useState('');
   const [novoDocDesc, setNovoDocDesc] = useState('');
   const [novoDocObrigatorio, setNovoDocObrigatorio] = useState(true);
 
+  // Campos Pessoais
   const [novoCampoLabel, setNovoCampoLabel] = useState('');
   const [novoCampoTipo, setNovoCampoTipo] = useState('text');
   const [novoCampoPlaceholder, setNovoCampoPlaceholder] = useState('');
   const [novoCampoObrigatorio, setNovoCampoObrigatorio] = useState(true);
   const [novoCampoValidacao, setNovoCampoValidacao] = useState('none');
 
+  // Estado de Convites
+  const [conviteNome, setConviteNome] = useState('');
+  const [conviteTelefone, setConviteTelefone] = useState('');
+  const [conviteCargo, setConviteCargo] = useState('');
+  const [listaLote, setListaLote] = useState('');
+  const [mensagemModelo, setMensagemModelo] = useState(
+    'Olá {NOME}, parabéns! Você avançou no processo seletivo da Usina Bandeirante (USIBAN). O seu próximo passo é preencher os seus dados e anexar os documentos admissionais pelo link oficial: https://sistema-onboarding-rh.vercel.app'
+  );
+
   async function carregarDados() {
+    // 1. Candidatos
     const { data: candData } = await supabase
       .from('onboarding_candidates')
       .select('*')
       .order('created_at', { ascending: false });
     if (candData) setCandidates(candData);
 
+    // 2. Documentos
     const { data: docsData } = await supabase
       .from('candidate_documents')
       .select('*');
@@ -48,6 +62,7 @@ export default function AdminPage() {
       setCandidateDocs(agrupados);
     }
 
+    // 3. Documentos Exigidos
     const { data: reqDocs } = await supabase
       .from('required_documents')
       .select('*')
@@ -55,12 +70,20 @@ export default function AdminPage() {
       .order('created_at', { ascending: true });
     if (reqDocs) setRequiredDocs(reqDocs);
 
+    // 4. Campos Pessoais Exigidos
     const { data: reqFields } = await supabase
       .from('required_personal_fields')
       .select('*')
       .eq('is_active', true)
       .order('created_at', { ascending: true });
     if (reqFields) setRequiredFields(reqFields);
+
+    // 5. Convites Cadastrados
+    const { data: invData } = await supabase
+      .from('admission_invites')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (invData) setInvites(invData);
   }
 
   useEffect(() => {
@@ -96,6 +119,99 @@ export default function AdminPage() {
     if (!error) carregarDados();
   }
 
+  // --- FUNÇÕES DE CONVITES ---
+  async function handleAdicionarConviteIndividual(e) {
+    e.preventDefault();
+    if (!conviteNome || !conviteTelefone) return;
+
+    const telefoneLimpo = conviteTelefone.replace(/\D/g, '');
+    const { error } = await supabase.from('admission_invites').insert([
+      {
+        candidate_name: conviteNome.trim(),
+        phone: telefoneLimpo,
+        job_title: conviteCargo.trim(),
+        status: 'Pendente'
+      }
+    ]);
+
+    if (!error) {
+      setConviteNome('');
+      setConviteTelefone('');
+      setConviteCargo('');
+      carregarDados();
+      alert('Convite adicionado à lista!');
+    }
+  }
+
+  async function handleImportarLote(e) {
+    e.preventDefault();
+    if (!listaLote.trim()) return;
+
+    const linhas = listaLote.split('\n');
+    const novosConvites = [];
+
+    linhas.forEach(linha => {
+      const partes = linha.split(/[,;\t]/);
+      if (partes.length >= 2) {
+        const nome = partes[0].trim();
+        const telefone = partes[1].replace(/\D/g, '');
+        const cargo = partes[2] ? partes[2].trim() : '';
+
+        if (nome && telefone.length >= 10) {
+          novosConvites.push({
+            candidate_name: nome,
+            phone: telefone,
+            job_title: cargo,
+            status: 'Pendente'
+          });
+        }
+      }
+    });
+
+    if (novosConvites.length === 0) {
+      alert('Nenhum formato válido encontrado. Use o formato: Nome, Telefone (uma pessoa por linha).');
+      return;
+    }
+
+    const { error } = await supabase.from('admission_invites').insert(novosConvites);
+    if (!error) {
+      setListaLote('');
+      carregarDados();
+      alert(`${novosConvites.length} candidatos importados com sucesso!`);
+    } else {
+      alert('Erro: ' + error.message);
+    }
+  }
+
+  async function dispararWhatsApp(convite) {
+    const primeiroNome = convite.candidate_name.split(' ')[0];
+    const mensagem = mensagemModelo.replace('{NOME}', primeiroNome);
+    
+    // Normaliza para formato com código do país Brasil (55)
+    let fone = convite.phone.replace(/\D/g, '');
+    if (!fone.startsWith('55') && fone.length <= 11) {
+      fone = '55' + fone;
+    }
+
+    const url = `https://wa.me/${fone}?text=${encodeURIComponent(mensagem)}`;
+    
+    // Marca como 'Enviado' no banco
+    await supabase
+      .from('admission_invites')
+      .update({ status: 'Enviado' })
+      .eq('id', convite.id);
+
+    carregarDados();
+    window.open(url, '_blank');
+  }
+
+  async function handleExcluirConvite(id) {
+    if (!confirm('Deseja remover este convite da lista?')) return;
+    await supabase.from('admission_invites').delete().eq('id', id);
+    carregarDados();
+  }
+
+  // --- DEMAIS MÉTODOS (Campos e Documentos) ---
   async function handleAdicionarDoc(e) {
     e.preventDefault();
     if (!novoDocTitulo) return;
@@ -134,12 +250,12 @@ export default function AdminPage() {
       setNovoCampoPlaceholder('');
       setNovoCampoValidacao('none');
       carregarDados();
-      alert('Campo com validação adicionado ao formulário com sucesso!');
+      alert('Campo adicionado!');
     }
   }
 
   async function handleDesativarCampo(id) {
-    if (!confirm('Deseja desativar este campo do formulário?')) return;
+    if (!confirm('Deseja desativar este campo?')) return;
     await supabase.from('required_personal_fields').update({ is_active: false }).eq('id', id);
     carregarDados();
   }
@@ -189,9 +305,9 @@ export default function AdminPage() {
   }
 
   return (
-    <main style={{ padding: '24px 16px', fontFamily: 'system-ui, sans-serif', maxWidth: '1000px', margin: '0 auto', color: '#1e293b' }}>
+    <main style={{ padding: '24px 16px', fontFamily: 'system-ui, sans-serif', maxWidth: '1050px', margin: '0 auto', color: '#1e293b' }}>
       
-      {/* Barra Superior Institucional USIBAN */}
+      {/* Barra Superior */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #e2e8f0', paddingBottom: '16px', marginBottom: '20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           <img 
@@ -228,6 +344,21 @@ export default function AdminPage() {
           👥 Candidatos & Validação
         </button>
         <button 
+          onClick={() => setAbaAtiva('convites')}
+          style={{
+            padding: '10px 16px',
+            border: 'none',
+            borderBottom: abaAtiva === 'convites' ? '3px solid #0c5e31' : 'none',
+            background: abaAtiva === 'convites' ? '#e8f5e9' : '#f1f5f9',
+            color: abaAtiva === 'convites' ? '#0c5e31' : '#475569',
+            fontWeight: 'bold',
+            borderRadius: '6px 6px 0 0',
+            cursor: 'pointer'
+          }}
+        >
+          📨 Convidar Candidatos (WhatsApp)
+        </button>
+        <button 
           onClick={() => setAbaAtiva('campos')}
           style={{
             padding: '10px 16px',
@@ -259,7 +390,127 @@ export default function AdminPage() {
         </button>
       </div>
 
-      {/* ABA 1: CANDIDATOS */}
+      {/* ABA: CONVITES WHATSAPP */}
+      {abaAtiva === 'convites' && (
+        <div>
+          {/* Mensagem Padrão Editável */}
+          <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
+            <strong style={{ color: '#0c5e31', fontSize: '15px', display: 'block', marginBottom: '6px' }}>💬 Mensagem Padrão do WhatsApp</strong>
+            <span style={{ fontSize: '13px', color: '#64748b', display: 'block', marginBottom: '8px' }}>
+              Use <code>{'{NOME}'}</code> onde deseja que apareça o nome da pessoa selecionada:
+            </span>
+            <textarea
+              rows={3}
+              value={mensagemModelo}
+              onChange={e => setMensagemModelo(e.target.value)}
+              style={{ width: '100%', boxSizing: 'border-box', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13.5px', fontFamily: 'inherit' }}
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+            {/* Cadastro Avulso */}
+            <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <h3 style={{ marginTop: 0, color: '#0c5e31', fontSize: '16px' }}>+ Convidar Candidato Avulso</h3>
+              <form onSubmit={handleAdicionarConviteIndividual} style={{ display: 'grid', gap: '10px' }}>
+                <input
+                  placeholder="Nome do Candidato"
+                  value={conviteNome}
+                  onChange={e => setConviteNome(e.target.value)}
+                  required
+                  style={{ padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                />
+                <input
+                  placeholder="WhatsApp com DDD (Ex: 43999998888)"
+                  value={conviteTelefone}
+                  onChange={e => setConviteTelefone(e.target.value)}
+                  required
+                  style={{ padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                />
+                <input
+                  placeholder="Cargo Pretendido (Opcional)"
+                  value={conviteCargo}
+                  onChange={e => setConviteCargo(e.target.value)}
+                  style={{ padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                />
+                <button
+                  type="submit"
+                  style={{ padding: '10px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}
+                >
+                  Adicionar à Fila
+                </button>
+              </form>
+            </div>
+
+            {/* Cadastro em Lote */}
+            <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <h3 style={{ marginTop: 0, color: '#003366', fontSize: '16px' }}>📋 Importar Lista em Lote</h3>
+              <p style={{ color: '#64748b', fontSize: '12px', margin: '0 0 8px 0' }}>
+                Cole os candidatos (um por linha): <b>Nome, Telefone</b> ou <b>Nome, Telefone, Cargo</b>
+              </p>
+              <form onSubmit={handleImportarLote} style={{ display: 'grid', gap: '10px' }}>
+                <textarea
+                  rows={4}
+                  placeholder="Exemplo:&#10;João da Silva, 43999991111, Operador&#10;Maria Santos, 43988882222, RH"
+                  value={listaLote}
+                  onChange={e => setListaLote(e.target.value)}
+                  style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                />
+                <button
+                  type="submit"
+                  style={{ padding: '10px', background: '#003366', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}
+                >
+                  Importar Lista
+                </button>
+              </form>
+            </div>
+          </div>
+
+          {/* Fila de Disparo de Convites */}
+          <h3 style={{ color: '#0c5e31', margin: '0 0 12px 0' }}>Fila de Convites ({invites.length})</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {invites.length === 0 ? (
+              <p style={{ color: '#64748b' }}>Nenhum convite na fila.</p>
+            ) : (
+              invites.map(inv => {
+                const enviado = inv.status === 'Enviado';
+                return (
+                  <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', flexWrap: 'wrap', gap: '10px' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <strong style={{ fontSize: '15px' }}>{inv.candidate_name}</strong>
+                        <span style={{ fontSize: '11px', fontWeight: 'bold', padding: '2px 8px', borderRadius: '10px', background: enviado ? '#e8f5e9' : '#fef3c7', color: enviado ? '#0c5e31' : '#b45309' }}>
+                          {inv.status}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '13px', color: '#64748b' }}>
+                        WhatsApp: {inv.phone} {inv.job_title ? `| Cargo: ${inv.job_title}` : ''}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <button
+                        onClick={() => dispararWhatsApp(inv)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', background: '#25D366', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                      >
+                        <span style={{ fontSize: '16px' }}>📱</span>
+                        {enviado ? 'Reenviar WhatsApp' : 'Enviar WhatsApp'}
+                      </button>
+                      <button
+                        onClick={() => handleExcluirConvite(inv.id)}
+                        style={{ padding: '8px 10px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                      >
+                        Excluir
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ABA: CANDIDATOS */}
       {abaAtiva === 'candidatos' && (
         <div>
           <div style={{ display: 'flex', gap: '8px', marginBottom: '18px' }}>
@@ -367,7 +618,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* ABA 2: CAMPOS DE DADOS PESSOAIS */}
+      {/* ABA: CAMPOS PESSOAIS */}
       {abaAtiva === 'campos' && (
         <div>
           <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
@@ -471,7 +722,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* ABA 3: DOCUMENTOS EXIGIDOS */}
+      {/* ABA: DOCUMENTOS EXIGIDOS */}
       {abaAtiva === 'documentos' && (
         <div>
           <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
