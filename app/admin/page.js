@@ -135,7 +135,6 @@ export default function AdminPage() {
       return;
     }
 
-    // Mapeia todas as chaves dinâmicas preenchidas
     const colunasDinamicas = new Set();
     aprovados.forEach(c => {
       if (c.custom_data) {
@@ -400,7 +399,7 @@ export default function AdminPage() {
         </button>
       </div>
 
-      {/* Navegação entre Abas */}
+      {/* Abas de Navegação */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
         <button 
           onClick={() => setAbaAtiva('candidatos')}
@@ -522,7 +521,7 @@ export default function AdminPage() {
                 return (
                   <div key={c.id} style={{ padding: '18px 20px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                     
-                    {/* Topo Limpo: Nome, Status e Botões */}
+                    {/* Topo Limpo: Nome, Status e Botões de Ação */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <strong style={{ fontSize: '18px', color: '#0f172a' }}>{c.full_name}</strong>
@@ -550,7 +549,7 @@ export default function AdminPage() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                           {Object.entries(dadosExtras).map(([chave, valor]) => (
                             <div key={chave} style={{ color: '#334155', borderBottom: '1px dashed #e2e8f0', paddingBottom: '6px' }}>
-                              <b style={{ color: '#0f172a' }}>{chave}:</b> {String(val = valor)}
+                              <b style={{ color: '#0f172a' }}>{chave}:</b> {String(valor)}
                             </div>
                           ))}
                         </div>
