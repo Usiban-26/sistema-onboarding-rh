@@ -46,7 +46,7 @@ export default function AdminPage() {
     const { data: candData } = await supabase
       .from('onboarding_candidates')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('display_order', { ascending: false });
     if (candData) setCandidates(candData);
 
     // 2. Documentos
@@ -257,6 +257,26 @@ export default function AdminPage() {
   async function handleDesativarCampo(id) {
     if (!confirm('Deseja desativar este campo?')) return;
     await supabase.from('required_personal_fields').update({ is_active: false }).eq('id', id);
+    carregarDados();
+  }
+
+  async function handleMoverCampo(index, direcao) {
+    const novoIndex = direcao === 'cima' ? index - 1 : index + 1;
+    if (novoIndex < 0 || novoIndex >= requiredFields.length) return;
+
+    const campoAtual = requiredFields[index];
+    const campoAlvo = requiredFields[novoIndex];
+
+    const ordemAtual = campoAtual.display_order || index + 1;
+    const ordemAlvo = campoAlvo.display_order || novoIndex + 1;
+
+    // Se as ordens forem iguais, recalibra
+    const novaOrdemAtual = ordemAtual === ordemAlvo ? (direcao === 'cima' ? ordemAlvo - 1 : ordemAlvo + 1) : ordemAlvo;
+    const novaOrdemAlvo = ordemAtual;
+
+    await supabase.from('required_personal_fields').update({ display_order: novaOrdemAtual }).eq('id', campoAtual.id);
+    await supabase.from('required_personal_fields').update({ display_order: novaOrdemAlvo }).eq('id', campoAlvo.id);
+
     carregarDados();
   }
 
@@ -690,32 +710,59 @@ export default function AdminPage() {
             </form>
           </div>
 
-          <h3 style={{ color: '#0c5e31' }}>Campos Atualmente Ativos no Formulário</h3>
+          <h3 style={{ color: '#0c5e31' }}>Campos Atualmente Ativos no Formulário (Ordem de Exibição)</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {requiredFields.map(campo => (
-              <div key={campo.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
-                <div>
-                  <strong style={{ fontSize: '15px' }}>{campo.label}</strong>
-                  <span style={{ marginLeft: '8px', background: '#e2e8f0', color: '#475569', fontSize: '11px', padding: '2px 6px', borderRadius: '4px' }}>
-                    Tipo: {campo.field_type}
+            {requiredFields.map((campo, index) => (
+              <div key={campo.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ background: '#0c5e31', color: '#fff', width: '24px', height: '24px', borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold' }}>
+                    {index + 1}
                   </span>
-                  {campo.validation_rule && campo.validation_rule !== 'none' && (
-                    <span style={{ marginLeft: '6px', background: '#e8f5e9', color: '#0c5e31', fontSize: '11px', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
-                      Validação: {campo.validation_rule === 'fullname' ? 'Nome Completo' : campo.validation_rule === 'cpf' ? 'CPF Válido' : 'Celular 9 Dígitos'}
+                  <div>
+                    <strong style={{ fontSize: '15px' }}>{campo.label}</strong>
+                    <span style={{ marginLeft: '8px', background: '#e2e8f0', color: '#475569', fontSize: '11px', padding: '2px 6px', borderRadius: '4px' }}>
+                      Tipo: {campo.field_type}
                     </span>
-                  )}
-                  {campo.is_required && (
-                    <span style={{ marginLeft: '6px', background: '#fef2f2', color: '#b91c1c', fontSize: '11px', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
-                      Obrigatório
-                    </span>
-                  )}
+                    {campo.validation_rule && campo.validation_rule !== 'none' && (
+                      <span style={{ marginLeft: '6px', background: '#e8f5e9', color: '#0c5e31', fontSize: '11px', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                        Validação: {campo.validation_rule === 'fullname' ? 'Nome Completo' : campo.validation_rule === 'cpf' ? 'CPF Válido' : 'Celular 9 Dígitos'}
+                      </span>
+                    )}
+                    {campo.is_required && (
+                      <span style={{ marginLeft: '6px', background: '#fef2f2', color: '#b91c1c', fontSize: '11px', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                        Obrigatório
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <button 
-                  onClick={() => handleDesativarCampo(campo.id)}
-                  style={{ padding: '6px 10px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
-                >
-                  Desativar
-                </button>
+
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <button 
+                    type="button"
+                    disabled={index === 0}
+                    onClick={() => handleMoverCampo(index, 'cima')}
+                    style={{ padding: '6px 10px', background: index === 0 ? '#e2e8f0' : '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '4px', cursor: index === 0 ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                    title="Mover para cima"
+                  >
+                    ▲
+                  </button>
+                  <button 
+                    type="button"
+                    disabled={index === requiredFields.length - 1}
+                    onClick={() => handleMoverCampo(index, 'baixo')}
+                    style={{ padding: '6px 10px', background: index === requiredFields.length - 1 ? '#e2e8f0' : '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '4px', cursor: index === requiredFields.length - 1 ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                    title="Mover para baixo"
+                  >
+                    ▼
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => handleDesativarCampo(campo.id)}
+                    style={{ padding: '6px 10px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', marginLeft: '6px' }}
+                  >
+                    Desativar
+                  </button>
+                </div>
               </div>
             ))}
           </div>
