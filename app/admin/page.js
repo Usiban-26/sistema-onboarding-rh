@@ -8,6 +8,7 @@ const supabase = createClient(
 );
 
 const SENHA_MESTRA_RH = 'rh2026';
+const LINK_OFICIAL_PORTAL = 'https://sistema-onboarding-rh-4mj4.vercel.app/';
 
 export default function AdminPage() {
   const [autenticado, setAutenticado] = useState(false);
@@ -38,7 +39,7 @@ export default function AdminPage() {
   const [conviteCargo, setConviteCargo] = useState('');
   const [listaLote, setListaLote] = useState('');
   const [mensagemModelo, setMensagemModelo] = useState(
-    'Olá {NOME}, parabéns! Você avançou no processo seletivo da Usina Bandeirante (USIBAN). O seu próximo passo é preencher os seus dados e anexar os documentos admissionais pelo link oficial: https://sistema-onboarding-rh-4mj4.vercel.app/'
+    `Olá {NOME}, parabéns! Você avançou no processo seletivo da Usina Bandeirante (USIBAN). O seu próximo passo é preencher os seus dados e anexar os documentos admissionais pelo link oficial: ${LINK_OFICIAL_PORTAL}`
   );
 
   async function carregarDados() {
@@ -125,6 +126,54 @@ export default function AdminPage() {
     if (!error) carregarDados();
   }
 
+  // --- EXPORTAÇÃO CSV PARA EXCEL (UTF-8 COM BOM E SEPARADOR ;) ---
+  function handleExportarCSV() {
+    const aprovados = candidates.filter(c => c.status === 'Aprovado');
+
+    if (aprovados.length === 0) {
+      alert('Nenhum candidato com status "Aprovado" encontrado para exportar.');
+      return;
+    }
+
+    // Mapeia todas as chaves dinâmicas preenchidas
+    const colunasDinamicas = new Set();
+    aprovados.forEach(c => {
+      if (c.custom_data) {
+        Object.keys(c.custom_data).forEach(col => colunasDinamicas.add(col));
+      }
+    });
+
+    const listaColunas = Array.from(colunasDinamicas);
+    const cabecalho = ['Nome Completo', 'Status', 'Data de Envio', ...listaColunas];
+
+    const linhas = aprovados.map(c => {
+      const dataCriacao = c.created_at ? new Date(c.created_at).toLocaleDateString('pt-BR') : '';
+      const linhaBase = [
+        `"${(c.full_name || '').replace(/"/g, '""')}"`,
+        `"${(c.status || '').replace(/"/g, '""')}"`,
+        `"${dataCriacao}"`
+      ];
+
+      const valoresDinamicos = listaColunas.map(col => {
+        const val = c.custom_data?.[col] ?? '';
+        return `"${String(val).replace(/"/g, '""')}"`;
+      });
+
+      return [...linhaBase, ...valoresDinamicos].join(';');
+    });
+
+    const conteudoCSV = '\uFEFF' + [cabecalho.map(c => `"${c}"`).join(';'), ...linhas].join('\r\n');
+    const blob = new Blob([conteudoCSV], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `admissoes_aprovadas_usiban_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  // --- REORDENAÇÃO DOS CAMPOS ---
   async function handleMoverCampo(index, direcao) {
     const novoIndex = direcao === 'cima' ? index - 1 : index + 1;
     if (novoIndex < 0 || novoIndex >= requiredFields.length) return;
@@ -143,6 +192,7 @@ export default function AdminPage() {
     }
   }
 
+  // --- CONVITES WHATSAPP ---
   async function handleAdicionarConviteIndividual(e) {
     e.preventDefault();
     if (!conviteNome || !conviteTelefone) return;
@@ -232,6 +282,7 @@ export default function AdminPage() {
     carregarDados();
   }
 
+  // --- CAMPOS E DOCUMENTOS ---
   async function handleAdicionarDoc(e) {
     e.preventDefault();
     if (!novoDocTitulo) return;
@@ -349,7 +400,7 @@ export default function AdminPage() {
         </button>
       </div>
 
-      {/* Abas */}
+      {/* Navegação entre Abas */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
         <button 
           onClick={() => setAbaAtiva('candidatos')}
@@ -416,25 +467,47 @@ export default function AdminPage() {
       {/* ABA 1: CANDIDATOS */}
       {abaAtiva === 'candidatos' && (
         <div>
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '18px' }}>
-            {['Todos', 'Pendentes', 'Aprovados', 'Com Pendência'].map(status => (
-              <button 
-                key={status} 
-                onClick={() => setFiltro(status)} 
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: '20px',
-                  border: '1px solid #cbd5e1',
-                  background: filtro === status ? '#0c5e31' : '#fff',
-                  color: filtro === status ? '#fff' : '#475569',
-                  cursor: 'pointer',
-                  fontWeight: '500',
-                  fontSize: '13px'
-                }}
-              >
-                {status}
-              </button>
-            ))}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '18px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {['Todos', 'Pendentes', 'Aprovados', 'Com Pendência'].map(status => (
+                <button 
+                  key={status} 
+                  onClick={() => setFiltro(status)} 
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '20px',
+                    border: '1px solid #cbd5e1',
+                    background: filtro === status ? '#0c5e31' : '#fff',
+                    color: filtro === status ? '#fff' : '#475569',
+                    cursor: 'pointer',
+                    fontWeight: '500',
+                    fontSize: '13px'
+                  }}
+                >
+                  {status}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={handleExportarCSV}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '7px 14px',
+                background: '#0c5e31',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                fontSize: '13px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+              }}
+            >
+              📥 Exportar Aprovados (Excel)
+            </button>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -449,7 +522,7 @@ export default function AdminPage() {
                 return (
                   <div key={c.id} style={{ padding: '18px 20px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                     
-                    {/* Topo Limpo: Nome, Badge e Ações */}
+                    {/* Topo Limpo: Nome, Status e Botões */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <strong style={{ fontSize: '18px', color: '#0f172a' }}>{c.full_name}</strong>
@@ -468,7 +541,7 @@ export default function AdminPage() {
                       </div>
                     </div>
 
-                    {/* Todos os Dados Preenchidos: 1 Informação por Linha */}
+                    {/* Dados Cadastrados: 1 Informação por Linha */}
                     {Object.keys(dadosExtras).length > 0 ? (
                       <div style={{ padding: '14px 16px', background: '#f8faf9', borderRadius: '6px', fontSize: '14px', border: '1px solid #e2e8f0' }}>
                         <strong style={{ display: 'block', marginBottom: '10px', color: '#0c5e31', fontSize: '15px' }}>
@@ -477,7 +550,7 @@ export default function AdminPage() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                           {Object.entries(dadosExtras).map(([chave, valor]) => (
                             <div key={chave} style={{ color: '#334155', borderBottom: '1px dashed #e2e8f0', paddingBottom: '6px' }}>
-                              <b style={{ color: '#0f172a' }}>{chave}:</b> {String(valor)}
+                              <b style={{ color: '#0f172a' }}>{chave}:</b> {String(val = valor)}
                             </div>
                           ))}
                         </div>
