@@ -28,8 +28,10 @@ function aplicarMascaraTelefone(valor) {
   let v = valor.replace(/\D/g, '').slice(0, 11);
   if (v.length > 10) {
     return v.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3');
+  } else if (v.length > 6) {
+    return v.replace(/^(\d{2})(\d{4,5})(\d{0,4})$/, '($1) $2-$3');
   } else if (v.length > 2) {
-    return v.replace(/^(\d{2})(\d{0,5})/, '($1) $2');
+    return v.replace(/^(\d{2})(\d{0,5})$/, '($1) $2');
   }
   return v;
 }
@@ -47,7 +49,7 @@ function aplicarMascaraCPF(valor) {
     .replace(/(\d{3})(\d)/, '$1.$2') .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
 }
 
-// Validação oficial do CPF
+// Validação oficial do dígito verificador do CPF
 function validarCPF(cpfLimpo) {
   const cpf = cpfLimpo.replace(/\D/g, '');
   if (cpf.length !== 11 || /^(\d)\1+$/.test(cpf)) return false;
@@ -236,9 +238,9 @@ export default function CandidatoPage() {
   }
 
   return (
-    <main style={{ minHeight: '100vh', background: '#f8fafc', padding: '30px 16px', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#1e293b' }}>
+    <main style={{ minHeight: '100vh', background: '#f4f6f5', padding: '30px 16px', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#1e293b' }}>
       
-      {/* Topo Institucional com Identidade USIBAN */}
+      {/* Topo Institucional USIBAN */}
       <header style={{ textAlign: 'center', marginBottom: '24px' }}>
         <img 
           src="/logo-usiban.png" 
@@ -249,9 +251,91 @@ export default function CandidatoPage() {
         <h1 style={{ color: '#0c5e31', margin: '0 0 6px 0', fontSize: '26px', fontWeight: '800', letterSpacing: '-0.5px' }}>
           Portal de Admissão Digital
         </h1>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-          <span style={{ height: '2px', width: '20px', background: '#003366' }}></span>
-          <p style={{ color: '#003366', margin: 0, fontSize: '13px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            Açúcar e Álcool Bandeirantes S.A. • USIBAN
-          </p>
-          <span style={{ height: '2
+        <p style={{ color: '#475569', margin: 0, fontSize: '14px', fontWeight: '500' }}>
+          Açúcar e Álcool Bandeirantes S.A. • USIBAN
+        </p>
+      </header>
+
+      <div style={{ maxWidth: '680px', margin: '0 auto' }}>
+        {sucesso ? (
+          <div style={{ background: '#ffffff', borderTop: '5px solid #0c5e31', padding: '36px 24px', borderRadius: '10px', textAlign: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }}>
+            <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: '#e8f5e9', color: '#0c5e31', fontSize: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px auto' }}>
+              ✓
+            </div>
+            <h2 style={{ color: '#0c5e31', marginTop: 0, fontSize: '22px' }}>Cadastro e Documentos Recebidos!</h2>
+            <p style={{ color: '#475569', fontSize: '15px', lineHeight: '1.5' }}>
+              Os seus dados foram enviados com sucesso ao setor de Recursos Humanos da Usina Bandeirante para validação.
+            </p>
+            <button 
+              onClick={() => { setSucesso(false); setFormValues({}); }} 
+              style={{ marginTop: '18px', padding: '12px 24px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}
+            >
+              Realizar Novo Envio
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} style={{ background: '#ffffff', borderRadius: '12px', boxShadow: '0 4px 14px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+            
+            <div style={{ background: '#0c5e31', height: '6px' }}></div>
+
+            <div style={{ padding: '28px' }}>
+              <div style={{ marginBottom: '20px' }}>
+                <h2 style={{ margin: 0, fontSize: '18px', color: '#0c5e31', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#e8f5e9', color: '#0c5e31', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 'bold' }}>1</span>
+                  Dados Pessoais & Cadastrais
+                </h2>
+                <span style={{ fontSize: '13px', color: '#64748b' }}>Preencha com atenção todas as informações cadastrais</span>
+              </div>
+
+              {requiredFields.length === 0 ? (
+                <p style={{ color: '#64748b', fontSize: '13px' }}>Carregando formulário...</p>
+              ) : (
+                <div style={{ display: 'grid', gap: '14px' }}>
+                  {requiredFields.map(f => {
+                    const temErro = Boolean(erros[f.label]);
+                    return (
+                      <div key={f.id}>
+                        <label style={{ display: 'block', marginBottom: '5px', fontWeight: '600', fontSize: '13.5px', color: temErro ? '#dc2626' : '#334155' }}>
+                          {f.label} {f.is_required && <span style={{ color: '#dc2626' }}>*</span>}
+                        </label>
+                        <input 
+                          type={f.field_type || 'text'}
+                          placeholder={f.placeholder || ''}
+                          value={formValues[f.label] || ''}
+                          onChange={e => handleInputChange(f, e.target.value)}
+                          onBlur={() => handleInputBlur(f)}
+                          style={{ 
+                            width: '100%', 
+                            boxSizing: 'border-box', 
+                            padding: '10px 12px', 
+                            borderRadius: '6px', 
+                            border: temErro ? '2px solid #dc2626' : '1px solid #cbd5e1',
+                            background: temErro ? '#fef2f2' : '#fff',
+                            fontSize: '14px',
+                            outline: 'none',
+                            color: '#1e293b'
+                          }} 
+                        />
+                        {temErro && (
+                          <span style={{ display: 'block', marginTop: '4px', color: '#dc2626', fontSize: '12px', fontWeight: '500' }}>
+                            ⚠️ {erros[f.label]}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <hr style={{ border: 'none', borderTop: '1px solid #f1f5f9', margin: '28px 0' }} />
+
+              <div style={{ marginBottom: '20px' }}>
+                <h2 style={{ margin: 0, fontSize: '18px', color: '#0c5e31', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#e8f5e9', color: '#0c5e31', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 'bold' }}>2</span>
+                  Documentação Admissional
+                </h2>
+                <span style={{ fontSize: '13px', color: '#64748b' }}>Anexe arquivos legíveis (PDF ou Fotos nítidas)</span>
+              </div>
+
+              {requiredDocs.length === 0 ? (
+                <p style={{ color: '#64748b',
