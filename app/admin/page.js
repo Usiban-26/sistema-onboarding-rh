@@ -21,6 +21,10 @@ export default function AdminPage() {
   const [filtro, setFiltro] = useState('Todos');
   const [abaAtiva, setAbaAtiva] = useState('candidatos');
 
+  // Modal de Edição de Dados pelo RH
+  const [candidatoEditando, setCandidatoEditando] = useState(null);
+  const [dadosEdicao, setDadosEdicao] = useState({});
+
   // Documentos
   const [novoDocTitulo, setNovoDocTitulo] = useState('');
   const [novoDocDesc, setNovoDocDesc] = useState('');
@@ -43,19 +47,14 @@ export default function AdminPage() {
   );
 
   async function carregarDados() {
-    // 1. Candidatos
     const { data: candData, error: candError } = await supabase
       .from('onboarding_candidates')
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (candError) {
-      console.error('Erro ao carregar candidatos:', candError);
-    } else if (candData) {
-      setCandidates(candData);
-    }
+    if (candError) console.error('Erro ao carregar candidatos:', candError);
+    else if (candData) setCandidates(candData);
 
-    // 2. Documentos
     const { data: docsData } = await supabase
       .from('candidate_documents')
       .select('*');
@@ -68,7 +67,6 @@ export default function AdminPage() {
       setCandidateDocs(agrupados);
     }
 
-    // 3. Documentos Exigidos
     const { data: reqDocs } = await supabase
       .from('required_documents')
       .select('*')
@@ -76,7 +74,6 @@ export default function AdminPage() {
       .order('created_at', { ascending: true });
     if (reqDocs) setRequiredDocs(reqDocs);
 
-    // 4. Campos Pessoais Exigidos
     const { data: reqFields } = await supabase
       .from('required_personal_fields')
       .select('*')
@@ -85,7 +82,6 @@ export default function AdminPage() {
       .order('created_at', { ascending: true });
     if (reqFields) setRequiredFields(reqFields);
 
-    // 5. Convites
     const { data: invData } = await supabase
       .from('admission_invites')
       .select('*')
@@ -101,76 +97,142 @@ export default function AdminPage() {
 
   function handleLogin(e) {
     e.preventDefault();
-    if (senhaInput === SENHA_MESTRA_RH) {
-      setAutenticado(true);
-    } else {
-      alert('Senha incorreta!');
+    if (senhaInput === SENHA_MESTRA_RH) setAutenticado(true);
+    else alert('Senha incorreta!');
+  }
+
+  function extrairTelefone(candidato) {
+    let fone = candidato.phone || '';
+    if (!fone && candidato.custom_data) {
+      const k = Object.keys(candidato.custom_data).find(key => {
+        const lower = key.toLowerCase();
+        return lower.includes('whatsapp') || lower.includes('telefone') || lower.includes('celular');
+      });
+      if (k) fone = candidato.custom_data[k];
+    }
+    fone = (fone || '').replace(/\D/g, '');
+    if (fone && !fone.startsWith('55') && fone.length <= 11) {
+      fone = '55' + fone;
+    }
+    return fone;
+  }
+
+  // 1. APROVAÇÃO COM AGENDAMENTO E DISPARO WHATSAPP
+  async function handleAprovar(candidato) {
+    const dataExame = prompt('Data e Horário do Exame Médico Admissional (Ex: 28/10 às 08:30 no SESI):');
+    if (dataExame === null) return;
+
+    const dataIntegracao = prompt('Data e Horário da Integração na Usina (Ex: 03/11 às 07:30 no RH):');
+    if (dataIntegracao === null) return;
+
+    const { error } = await supabase
+      .from('onboarding_candidates')
+      .update({ 
+        status: 'Aprovado', 
+        feedback_reason: `Exame: ${dataExame || 'A definir'} | Integração: ${dataIntegracao || 'A definir'}` 
+      })
+      .eq('id', candidato.id);
+
+    if (!error) {
+      carregarDados();
+      const fone = extrairTelefone(candidato);
+      const primeiroNome = (candidato.full_name || 'Candidato').trim().split(' ')[0];
+
+      const texto = `Olá ${primeiroNome}, parabéns! Seus documentos e cadastro foram validados e aprovados com sucesso pelo RH da Usina Bandeirante (USIBAN).\n\nSeguem as orientações para suas próximas etapas:\n🩺 *Exame Médico Admissional:* ${dataExame || 'A agendar'}\n🤝 *Integração e Boas-Vindas:* ${dataIntegracao || 'A agendar'}\n\nEm caso de dúvidas, estamos à disposição. Seja bem-vindo(a) à equipe Usiban!`;
+
+      if (fone && fone.length >= 10) {
+        window.open(`https://wa.me/${fone}?text=${encodeURIComponent(texto)}`, '_blank');
+      } else {
+        alert('Candidato aprovado! (WhatsApp não localizado para abertura automática)');
+      }
     }
   }
 
-  async function handleAprovar(id) {
-    const { error } = await supabase
-      .from('onboarding_candidates')
-      .update({ status: 'Aprovado', feedback_reason: null })
-      .eq('id', id);
-    if (!error) carregarDados();
-  }
-
-  async function handleRejeitar(id) {
-    const motivo = prompt('Informe o motivo da pendência / recusa:');
+  // 2. REJEIÇÃO COM MOTIVO E DISPARO WHATSAPP
+  async function handleRejeitar(candidato) {
+    const motivo = prompt('Informe o motivo da pendência com os documentos/dados (Ex: RG ilegível, CPF com dígito trocado):');
     if (!motivo) return;
+
     const { error } = await supabase
       .from('onboarding_candidates')
       .update({ status: 'Rejeitado / Pendência', feedback_reason: motivo })
-      .eq('id', id);
-    if (!error) carregarDados();
+      .eq('id', candidato.id);
+
+    if (!error) {
+      carregarDados();
+      const fone = extrairTelefone(candidato);
+      const primeiroNome = (candidato.full_name || 'Candidato').trim().split(' ')[0];
+
+      const texto = `Olá ${primeiroNome}, aqui é do setor de Recursos Humanos da Usina Bandeirante (USIBAN).\n\nIdentificamos uma pendência na documentação enviada para sua admissão:\n⚠️ *Motivo da Pendência:* ${motivo}\n\nPor favor, acesse o link a seguir para reenviar o documento corrigido ou ajustar os dados:\n👉 ${LINK_OFICIAL_PORTAL}\n\nQualquer dúvida, responda por aqui.`;
+
+      if (fone && fone.length >= 10) {
+        window.open(`https://wa.me/${fone}?text=${encodeURIComponent(texto)}`, '_blank');
+      } else {
+        alert('Status alterado para pendência! (WhatsApp não localizado)');
+      }
+    }
   }
 
-  // --- CONTATO DIRETO VIA WHATSAPP A PARTIR DO CARD ---
-  function abrirWhatsAppCandidato(candidato) {
-    // Tenta encontrar o telefone em c.phone ou dentro do custom_data
-    let telefoneBruto = candidato.phone || '';
-    if (!telefoneBruto && candidato.custom_data) {
-      const chaves = Object.keys(candidato.custom_data);
-      const chaveTel = chaves.find(k => {
-        const lower = k.toLowerCase();
-        return lower.includes('whatsapp') || lower.includes('telefone') || lower.includes('celular');
-      });
-      if (chaveTel) telefoneBruto = candidato.custom_data[chaveTel];
-    }
+  // 4. EDIÇÃO DE DADOS PELO RH
+  function iniciarEdicao(candidato) {
+    setCandidatoEditando(candidato);
+    setDadosEdicao(candidato.custom_data ? { ...candidato.custom_data } : {
+      'Nome Completo': candidato.full_name,
+      'Cargo Pretendido': candidato.job_title,
+      'Departamento': candidato.department,
+      'E-mail': candidato.email,
+      'WhatsApp / Telefone': candidato.phone
+    });
+  }
 
-    const numeros = (telefoneBruto || '').replace(/\D/g, '');
-    if (!numeros || numeros.length < 10) {
-      alert('Número de WhatsApp não encontrado ou formato inválido para este candidato.');
+  async function salvarEdicaoRH(e) {
+    e.preventDefault();
+    if (!candidatoEditando) return;
+
+    const novoNome = dadosEdicao['Nome Completo'] || candidatoEditando.full_name;
+    const novoEmail = dadosEdicao['E-mail'] || candidatoEditando.email;
+    const novoTelefone = dadosEdicao['WhatsApp / Telefone'] || dadosEdicao['Telefone'] || candidatoEditando.phone;
+    const novoCargo = dadosEdicao['Cargo Pretendido'] || candidatoEditando.job_title;
+    const novoDepto = dadosEdicao['Departamento'] || candidatoEditando.department;
+
+    const { error } = await supabase
+      .from('onboarding_candidates')
+      .update({
+        full_name: novoNome,
+        email: novoEmail,
+        phone: novoTelefone,
+        job_title: novoCargo,
+        department: novoDepto,
+        custom_data: dadosEdicao
+      })
+      .eq('id', candidatoEditando.id);
+
+    if (!error) {
+      alert('Dados cadastrais atualizados com sucesso pelo RH!');
+      setCandidatoEditando(null);
+      carregarDados();
+    } else {
+      alert('Erro ao salvar alterações: ' + error.message);
+    }
+  }
+
+  // CONTATO RÁPIDO WHATSAPP
+  function abrirWhatsAppDireto(candidato) {
+    const fone = extrairTelefone(candidato);
+    if (!fone) {
+      alert('Número de telefone não informado pelo candidato.');
       return;
     }
-
-    let fone = numeros;
-    if (!fone.startsWith('55') && fone.length <= 11) {
-      fone = '55' + fone;
-    }
-
     const primeiroNome = (candidato.full_name || 'Candidato').trim().split(' ')[0];
-    
-    // Mensagem contextual baseada no status atual
-    let texto = `Olá ${primeiroNome}, aqui é do setor de Recursos Humanos da Usina Bandeirante (USIBAN).`;
-    if (candidato.status === 'Aprovado') {
-      texto = `Olá ${primeiroNome}, parabéns! Seus documentos e cadastro foram validados e aprovados pelo RH da Usina Bandeirante (USIBAN). Em breve passaremos as orientações para o início das atividades.`;
-    } else if (candidato.status?.includes('Rejeitado')) {
-      const motivo = candidato.feedback_reason ? ` Motivo: ${candidato.feedback_reason}` : '';
-      texto = `Olá ${primeiroNome}, estamos revisando seu cadastro na Usina Bandeirante (USIBAN) e identificamos uma pendência nos documentos enviados.${motivo} Por favor, acesse o portal para reenviar: ${LINK_OFICIAL_PORTAL}`;
-    }
-
-    const url = `https://wa.me/${fone}?text=${encodeURIComponent(texto)}`;
-    window.open(url, '_blank');
+    const texto = `Olá ${primeiroNome}, aqui é do RH da Usina Bandeirante (USIBAN). Entramos em contato referente ao seu processo admissional.`;
+    window.open(`https://wa.me/${fone}?text=${encodeURIComponent(texto)}`, '_blank');
   }
 
-  // --- EXPORTAÇÃO CSV PARA EXCEL (UTF-8 COM BOM E SEPARADOR ;) ---
+  // EXPORTAR EXCEL CSV
   function handleExportarCSV() {
     const aprovados = candidates.filter(c => c.status === 'Aprovado');
-
     if (aprovados.length === 0) {
-      alert('Nenhum candidato com status "Aprovado" encontrado para exportar.');
+      alert('Nenhum candidato aprovado para exportar.');
       return;
     }
 
@@ -211,7 +273,7 @@ export default function AdminPage() {
     document.body.removeChild(link);
   }
 
-  // --- REORDENAÇÃO DOS CAMPOS ---
+  // REORDENAÇÃO DE CAMPOS
   async function handleMoverCampo(index, direcao) {
     const novoIndex = direcao === 'cima' ? index - 1 : index + 1;
     if (novoIndex < 0 || novoIndex >= requiredFields.length) return;
@@ -230,21 +292,14 @@ export default function AdminPage() {
     }
   }
 
-  // --- CONVITES WHATSAPP ---
+  // CONVITES EM MASSA E AVULSOS
   async function handleAdicionarConviteIndividual(e) {
     e.preventDefault();
     if (!conviteNome || !conviteTelefone) return;
-
     const telefoneLimpo = conviteTelefone.replace(/\D/g, '');
     const { error } = await supabase.from('admission_invites').insert([
-      {
-        candidate_name: conviteNome.trim(),
-        phone: telefoneLimpo,
-        job_title: conviteCargo.trim(),
-        status: 'Pendente'
-      }
+      { candidate_name: conviteNome.trim(), phone: telefoneLimpo, job_title: conviteCargo.trim(), status: 'Pendente' }
     ]);
-
     if (!error) {
       setConviteNome('');
       setConviteTelefone('');
@@ -260,21 +315,14 @@ export default function AdminPage() {
 
     const linhas = listaLote.split('\n');
     const novosConvites = [];
-
     linhas.forEach(linha => {
       const partes = linha.split(/[,;\t]/);
       if (partes.length >= 2) {
         const nome = partes[0].trim();
         const telefone = partes[1].replace(/\D/g, '');
         const cargo = partes[2] ? partes[2].trim() : '';
-
         if (nome && telefone.length >= 10) {
-          novosConvites.push({
-            candidate_name: nome,
-            phone: telefone,
-            job_title: cargo,
-            status: 'Pendente'
-          });
+          novosConvites.push({ candidate_name: nome, phone: telefone, job_title: cargo, status: 'Pendente' });
         }
       }
     });
@@ -289,29 +337,18 @@ export default function AdminPage() {
       setListaLote('');
       carregarDados();
       alert(`${novosConvites.length} candidatos importados!`);
-    } else {
-      alert('Erro: ' + error.message);
     }
   }
 
-  async function dispararWhatsApp(convite) {
+  async function dispararWhatsAppConvite(convite) {
     const primeiroNome = convite.candidate_name.split(' ')[0];
     const mensagem = mensagemModelo.replace('{NOME}', primeiroNome);
-    
     let fone = convite.phone.replace(/\D/g, '');
-    if (!fone.startsWith('55') && fone.length <= 11) {
-      fone = '55' + fone;
-    }
+    if (!fone.startsWith('55') && fone.length <= 11) fone = '55' + fone;
 
-    const url = `https://wa.me/${fone}?text=${encodeURIComponent(mensagem)}`;
-    
-    await supabase
-      .from('admission_invites')
-      .update({ status: 'Enviado' })
-      .eq('id', convite.id);
-
+    await supabase.from('admission_invites').update({ status: 'Enviado' }).eq('id', convite.id);
     carregarDados();
-    window.open(url, '_blank');
+    window.open(`https://wa.me/${fone}?text=${encodeURIComponent(mensagem)}`, '_blank');
   }
 
   async function handleExcluirConvite(id) {
@@ -320,7 +357,7 @@ export default function AdminPage() {
     carregarDados();
   }
 
-  // --- CAMPOS E DOCUMENTOS ---
+  // CAMPOS E DOCUMENTOS
   async function handleAdicionarDoc(e) {
     e.preventDefault();
     if (!novoDocTitulo) return;
@@ -345,7 +382,6 @@ export default function AdminPage() {
     e.preventDefault();
     if (!novoCampoLabel) return;
     const proximaOrdem = requiredFields.length + 1;
-
     const { error } = await supabase.from('required_personal_fields').insert([
       {
         label: novoCampoLabel,
@@ -438,7 +474,35 @@ export default function AdminPage() {
         </button>
       </div>
 
-      {/* Abas de Navegação */}
+      {/* Modal de Edição de Dados pelo RH */}
+      {candidatoEditando && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
+          <div style={{ background: '#fff', padding: '24px', borderRadius: '10px', width: '100%', maxWidth: '580px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h3 style={{ margin: '0 0 12px 0', color: '#0c5e31' }}>✏️ Corrigir Dados Cadastrais: {candidatoEditando.full_name}</h3>
+            <p style={{ fontSize: '13px', color: '#64748b', marginTop: 0 }}>O RH pode ajustar erros de digitação em números, datas ou nomes diretamente aqui.</p>
+            
+            <form onSubmit={salvarEdicaoRH} style={{ display: 'grid', gap: '10px' }}>
+              {Object.entries(dadosEdicao).map(([campo, valor]) => (
+                <div key={campo}>
+                  <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 'bold', marginBottom: '4px', color: '#334155' }}>{campo}</label>
+                  <input
+                    type="text"
+                    value={valor || ''}
+                    onChange={(e) => setDadosEdicao({ ...dadosEdicao, [campo]: e.target.value })}
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px' }}
+                  />
+                </div>
+              ))}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' }}>
+                <button type="button" onClick={() => setCandidatoEditando(null)} style={{ padding: '9px 16px', background: '#e2e8f0', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Cancelar</button>
+                <button type="submit" style={{ padding: '9px 18px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Salvar Alterações</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Abas */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
         <button 
           onClick={() => setAbaAtiva('candidatos')}
@@ -560,7 +624,7 @@ export default function AdminPage() {
                 return (
                   <div key={c.id} style={{ padding: '18px 20px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                     
-                    {/* Topo Limpo: Nome, Status, Botão WhatsApp e Ações */}
+                    {/* Topo Limpo: Nome, Status, Botões de Contato e Ações */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <strong style={{ fontSize: '18px', color: '#0f172a' }}>{c.full_name}</strong>
@@ -570,38 +634,45 @@ export default function AdminPage() {
                       </div>
 
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        {/* Botão de WhatsApp Direto */}
+                        {/* Botão de Edição do RH */}
                         <button
                           type="button"
-                          onClick={() => abrirWhatsAppCandidato(c)}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '5px',
-                            padding: '7px 12px',
-                            background: '#25D366',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: '5px',
-                            cursor: 'pointer',
-                            fontWeight: 'bold',
-                            fontSize: '13px'
-                          }}
-                          title="Abrir WhatsApp com este candidato"
+                          onClick={() => iniciarEdicao(c)}
+                          style={{ padding: '7px 12px', background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}
+                          title="Corrigir dados cadastrais deste candidato"
                         >
-                          <span>📱</span> WhatsApp
+                          ✏️ Editar
                         </button>
 
-                        <button onClick={() => handleAprovar(c.id)} style={{ padding: '7px 14px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
+                        {/* WhatsApp Direto */}
+                        <button
+                          type="button"
+                          onClick={() => abrirWhatsAppDireto(c)}
+                          style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '7px 12px', background: '#25D366', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}
+                          title="Abrir WhatsApp"
+                        >
+                          📱 WhatsApp
+                        </button>
+
+                        {/* Aprovar e Agendar Exame/Integração */}
+                        <button 
+                          onClick={() => handleAprovar(c)} 
+                          style={{ padding: '7px 14px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                        >
                           Aprovar ✓
                         </button>
-                        <button onClick={() => handleRejeitar(c.id)} style={{ padding: '7px 14px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
+
+                        {/* Rejeitar e Avisar Pendência */}
+                        <button 
+                          onClick={() => handleRejeitar(c)} 
+                          style={{ padding: '7px 14px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                        >
                           Rejeitar ✕
                         </button>
                       </div>
                     </div>
 
-                    {/* Dados Cadastrados: 1 Informação por Linha */}
+                    {/* Dados Cadastrados: 1 por Linha */}
                     {Object.keys(dadosExtras).length > 0 ? (
                       <div style={{ padding: '14px 16px', background: '#f8faf9', borderRadius: '6px', fontSize: '14px', border: '1px solid #e2e8f0' }}>
                         <strong style={{ display: 'block', marginBottom: '10px', color: '#0c5e31', fontSize: '15px' }}>
@@ -626,10 +697,10 @@ export default function AdminPage() {
                       </div>
                     )}
 
-                    {/* Motivo de Pendência */}
+                    {/* Detalhes de Agendamento ou Pendência */}
                     {c.feedback_reason && (
-                      <div style={{ marginTop: '10px', padding: '8px 12px', background: '#fef2f2', borderLeft: '4px solid #ef4444', color: '#991b1b', fontSize: '13px' }}>
-                        <b>Motivo da Pendência:</b> {c.feedback_reason}
+                      <div style={{ marginTop: '10px', padding: '10px 14px', background: c.status === 'Aprovado' ? '#e8f5e9' : '#fef2f2', borderLeft: `4px solid ${c.status === 'Aprovado' ? '#0c5e31' : '#ef4444'}`, color: c.status === 'Aprovado' ? '#0c5e31' : '#991b1b', fontSize: '13px' }}>
+                        <b>{c.status === 'Aprovado' ? 'Agendamentos:' : 'Motivo da Pendência:'}</b> {c.feedback_reason}
                       </div>
                     )}
 
@@ -759,7 +830,7 @@ export default function AdminPage() {
 
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                       <button
-                        onClick={() => dispararWhatsApp(inv)}
+                        onClick={() => dispararWhatsAppConvite(inv)}
                         style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', background: '#25D366', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
                       >
                         <span style={{ fontSize: '16px' }}>📱</span>
