@@ -269,7 +269,7 @@ export default function CandidatoPage() {
           </div>
         ) : (
           <form onSubmit={handleSubmit} style={{ background: '#ffffff', borderRadius: '12px', boxShadow: '0 4px 14px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-            <div style={{ background: '#0c5e31', height: '6px' }}></div>
+            <div style={{ background: '#003366', height: '6px' }}></div>
             <div style={{ padding: '28px' }}>
               <div style={{ marginBottom: '20px' }}>
                 <h2 style={{ margin: 0, fontSize: '18px', color: '#0c5e31', display: 'flex', alignItems: 'center', gap: '8px' }}>
