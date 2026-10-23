@@ -38,7 +38,7 @@ export default function AdminPage() {
   const [conviteCargo, setConviteCargo] = useState('');
   const [listaLote, setListaLote] = useState('');
   const [mensagemModelo, setMensagemModelo] = useState(
-    'Olá {NOME}, parabéns! Você avançou no processo seletivo da Usina Bandeirante (USIBAN). O seu próximo passo é preencher os seus dados e anexar os documentos admissionais pelo link oficial: https://sistema-onboarding-rh.vercel.app'
+    'Olá {NOME}, parabéns! Você avançou no processo seletivo da Usina Bandeirante (USIBAN). O seu próximo passo é preencher os seus dados e anexar os documentos admissionais pelo link oficial: https://sistema-onboarding-rh-4mj4.vercel.app/'
   );
 
   async function carregarDados() {
