@@ -17,14 +17,12 @@ export default function AdminPage() {
   const [requiredDocs, setRequiredDocs] = useState([]);
   const [requiredFields, setRequiredFields] = useState([]);
   const [filtro, setFiltro] = useState('Todos');
-  const [abaAtiva, setAbaAtiva] = useState('candidatos'); // 'candidatos' | 'documentos' | 'campos'
+  const [abaAtiva, setAbaAtiva] = useState('candidatos');
 
-  // Novo documento
   const [novoDocTitulo, setNovoDocTitulo] = useState('');
   const [novoDocDesc, setNovoDocDesc] = useState('');
   const [novoDocObrigatorio, setNovoDocObrigatorio] = useState(true);
 
-  // Novo campo de dados pessoais
   const [novoCampoLabel, setNovoCampoLabel] = useState('');
   const [novoCampoTipo, setNovoCampoTipo] = useState('text');
   const [novoCampoPlaceholder, setNovoCampoPlaceholder] = useState('');
@@ -32,14 +30,12 @@ export default function AdminPage() {
   const [novoCampoValidacao, setNovoCampoValidacao] = useState('none');
 
   async function carregarDados() {
-    // 1. Candidatos
     const { data: candData } = await supabase
       .from('onboarding_candidates')
       .select('*')
       .order('created_at', { ascending: false });
     if (candData) setCandidates(candData);
 
-    // 2. Documentos dos candidatos
     const { data: docsData } = await supabase
       .from('candidate_documents')
       .select('*');
@@ -52,7 +48,6 @@ export default function AdminPage() {
       setCandidateDocs(agrupados);
     }
 
-    // 3. Documentos Exigidos
     const { data: reqDocs } = await supabase
       .from('required_documents')
       .select('*')
@@ -60,7 +55,6 @@ export default function AdminPage() {
       .order('created_at', { ascending: true });
     if (reqDocs) setRequiredDocs(reqDocs);
 
-    // 4. Campos Pessoais Exigidos
     const { data: reqFields } = await supabase
       .from('required_personal_fields')
       .select('*')
@@ -102,7 +96,6 @@ export default function AdminPage() {
     if (!error) carregarDados();
   }
 
-  // Gestão de Documentos
   async function handleAdicionarDoc(e) {
     e.preventDefault();
     if (!novoDocTitulo) return;
@@ -123,7 +116,6 @@ export default function AdminPage() {
     carregarDados();
   }
 
-  // Gestão de Campos Pessoais
   async function handleAdicionarCampo(e) {
     e.preventDefault();
     if (!novoCampoLabel) return;
@@ -153,7 +145,7 @@ export default function AdminPage() {
   }
 
   function getStatusBadge(status) {
-    if (status === 'Aprovado') return { bg: '#dcfce7', color: '#15803d', label: 'Aprovado' };
+    if (status === 'Aprovado') return { bg: '#e8f5e9', color: '#0c5e31', label: 'Aprovado' };
     if (status?.includes('Rejeitado')) return { bg: '#fee2e2', color: '#b91c1c', label: status };
     return { bg: '#fef3c7', color: '#b45309', label: 'Pendente' };
   }
@@ -168,19 +160,27 @@ export default function AdminPage() {
 
   if (!autenticado) {
     return (
-      <main style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif', background: '#f8fafc' }}>
-        <form onSubmit={handleLogin} style={{ background: '#fff', padding: '30px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', width: '320px', border: '1px solid #e2e8f0' }}>
-          <h2 style={{ marginTop: 0, color: '#0f172a', textAlign: 'center' }}>Acesso do RH</h2>
-          <p style={{ color: '#64748b', fontSize: '13px', textAlign: 'center' }}>Digite a senha mestre para acessar o painel.</p>
+      <main style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui, sans-serif', background: '#f4f6f5' }}>
+        <form onSubmit={handleLogin} style={{ background: '#fff', padding: '32px 28px', borderRadius: '10px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', width: '320px', borderTop: '5px solid #0c5e31', border: '1px solid #e2e8f0' }}>
+          <div style={{ textAlign: 'center', marginBottom: '16px' }}>
+            <img 
+              src="/logo-usiban.png" 
+              alt="USIBAN" 
+              onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+              style={{ width: '85px', height: 'auto', marginBottom: '10px' }} 
+            />
+            <h2 style={{ margin: 0, color: '#0c5e31', fontSize: '20px', fontWeight: 'bold' }}>Gestão de RH</h2>
+            <small style={{ color: '#64748b' }}>Usina Bandeirante</small>
+          </div>
           <input 
             type="password" 
             placeholder="Senha de acesso" 
             value={senhaInput} 
             onChange={e => setSenhaInput(e.target.value)} 
             required 
-            style={{ width: '100%', boxSizing: 'border-box', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', marginBottom: '14px' }} 
+            style={{ width: '100%', boxSizing: 'border-box', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', marginBottom: '14px', fontSize: '14px' }} 
           />
-          <button type="submit" style={{ width: '100%', padding: '10px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+          <button type="submit" style={{ width: '100%', padding: '11px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}>
             Entrar no Painel
           </button>
         </form>
@@ -189,13 +189,23 @@ export default function AdminPage() {
   }
 
   return (
-    <main style={{ padding: '30px 20px', fontFamily: 'sans-serif', maxWidth: '1000px', margin: '0 auto', color: '#1e293b' }}>
+    <main style={{ padding: '24px 16px', fontFamily: 'system-ui, sans-serif', maxWidth: '1000px', margin: '0 auto', color: '#1e293b' }}>
+      
+      {/* Barra Superior Institucional USIBAN */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #e2e8f0', paddingBottom: '16px', marginBottom: '20px' }}>
-        <div>
-          <h1 style={{ margin: 0, color: '#0284c7' }}>Painel do RH - Gestão de Admissões</h1>
-          <small style={{ color: '#64748b' }}>Usiban | Gestão integral de candidatos, campos e documentos</small>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <img 
+            src="/logo-usiban.png" 
+            alt="USIBAN" 
+            onError={(e) => { e.currentTarget.style.display = 'none'; }} 
+            style={{ width: '55px', height: 'auto' }} 
+          />
+          <div>
+            <h1 style={{ margin: 0, color: '#0c5e31', fontSize: '22px', fontWeight: 'bold' }}>Painel de Admissões RH</h1>
+            <small style={{ color: '#64748b' }}>Açúcar e Álcool Bandeirantes S.A. • USIBAN</small>
+          </div>
         </div>
-        <button onClick={() => setAutenticado(false)} style={{ padding: '6px 12px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+        <button onClick={() => setAutenticado(false)} style={{ padding: '6px 12px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
           Sair
         </button>
       </div>
@@ -207,9 +217,9 @@ export default function AdminPage() {
           style={{
             padding: '10px 16px',
             border: 'none',
-            borderBottom: abaAtiva === 'candidatos' ? '3px solid #0284c7' : 'none',
-            background: abaAtiva === 'candidatos' ? '#e0f2fe' : '#f1f5f9',
-            color: abaAtiva === 'candidatos' ? '#0369a1' : '#475569',
+            borderBottom: abaAtiva === 'candidatos' ? '3px solid #0c5e31' : 'none',
+            background: abaAtiva === 'candidatos' ? '#e8f5e9' : '#f1f5f9',
+            color: abaAtiva === 'candidatos' ? '#0c5e31' : '#475569',
             fontWeight: 'bold',
             borderRadius: '6px 6px 0 0',
             cursor: 'pointer'
@@ -222,9 +232,9 @@ export default function AdminPage() {
           style={{
             padding: '10px 16px',
             border: 'none',
-            borderBottom: abaAtiva === 'campos' ? '3px solid #0284c7' : 'none',
-            background: abaAtiva === 'campos' ? '#e0f2fe' : '#f1f5f9',
-            color: abaAtiva === 'campos' ? '#0369a1' : '#475569',
+            borderBottom: abaAtiva === 'campos' ? '3px solid #0c5e31' : 'none',
+            background: abaAtiva === 'campos' ? '#e8f5e9' : '#f1f5f9',
+            color: abaAtiva === 'campos' ? '#0c5e31' : '#475569',
             fontWeight: 'bold',
             borderRadius: '6px 6px 0 0',
             cursor: 'pointer'
@@ -237,9 +247,9 @@ export default function AdminPage() {
           style={{
             padding: '10px 16px',
             border: 'none',
-            borderBottom: abaAtiva === 'documentos' ? '3px solid #0284c7' : 'none',
-            background: abaAtiva === 'documentos' ? '#e0f2fe' : '#f1f5f9',
-            color: abaAtiva === 'documentos' ? '#0369a1' : '#475569',
+            borderBottom: abaAtiva === 'documentos' ? '3px solid #0c5e31' : 'none',
+            background: abaAtiva === 'documentos' ? '#e8f5e9' : '#f1f5f9',
+            color: abaAtiva === 'documentos' ? '#0c5e31' : '#475569',
             fontWeight: 'bold',
             borderRadius: '6px 6px 0 0',
             cursor: 'pointer'
@@ -261,7 +271,7 @@ export default function AdminPage() {
                   padding: '6px 14px',
                   borderRadius: '20px',
                   border: '1px solid #cbd5e1',
-                  background: filtro === status ? '#0284c7' : '#fff',
+                  background: filtro === status ? '#0c5e31' : '#fff',
                   color: filtro === status ? '#fff' : '#475569',
                   cursor: 'pointer',
                   fontWeight: '500',
@@ -287,7 +297,7 @@ export default function AdminPage() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
-                          <strong style={{ fontSize: '17px' }}>{c.full_name}</strong>
+                          <strong style={{ fontSize: '17px', color: '#0f172a' }}>{c.full_name}</strong>
                           <span style={{ backgroundColor: badge.bg, color: badge.color, padding: '3px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold' }}>
                             {badge.label}
                           </span>
@@ -297,10 +307,9 @@ export default function AdminPage() {
                           <b>Contato:</b> {c.email} | {c.phone}
                         </div>
 
-                        {/* Exibição dos Dados Dinâmicos Cadastrados */}
                         {Object.keys(dadosExtras).length > 0 && (
-                          <div style={{ marginTop: '8px', padding: '8px 12px', background: '#f8fafc', borderRadius: '6px', fontSize: '13px', border: '1px solid #e2e8f0' }}>
-                            <strong style={{ display: 'block', marginBottom: '4px', color: '#0f172a' }}>Dados Cadastrados:</strong>
+                          <div style={{ marginTop: '8px', padding: '8px 12px', background: '#f8faf9', borderRadius: '6px', fontSize: '13px', border: '1px solid #e2e8f0' }}>
+                            <strong style={{ display: 'block', marginBottom: '4px', color: '#0c5e31' }}>Dados Cadastrados:</strong>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '6px' }}>
                               {Object.entries(dadosExtras).map(([chave, valor]) => (
                                 <span key={chave} style={{ color: '#334155' }}>
@@ -319,16 +328,15 @@ export default function AdminPage() {
                       </div>
 
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <button onClick={() => handleAprovar(c.id)} style={{ padding: '7px 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
+                        <button onClick={() => handleAprovar(c.id)} style={{ padding: '7px 14px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
                           Aprovar ✓
                         </button>
-                        <button onClick={() => handleRejeitar(c.id)} style={{ padding: '7px 12px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
+                        <button onClick={() => handleRejeitar(c.id)} style={{ padding: '7px 14px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
                           Rejeitar ✕
                         </button>
                       </div>
                     </div>
 
-                    {/* Documentos Anexados */}
                     <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px dashed #cbd5e1' }}>
                       <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#334155', display: 'block', marginBottom: '8px' }}>
                         Documentos Enviados ({docsEnviados.length}):
@@ -343,7 +351,7 @@ export default function AdminPage() {
                               href={d.document_url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: '#f0f9ff', border: '1px solid #bae6fd', color: '#0284c7', textDecoration: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: '500' }}
+                              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: '#e8f5e9', border: '1px solid #c8e6c9', color: '#0c5e31', textDecoration: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: '600' }}
                             >
                               📄 {d.document_name}
                             </a>
@@ -363,7 +371,7 @@ export default function AdminPage() {
       {abaAtiva === 'campos' && (
         <div>
           <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
-            <h3 style={{ marginTop: 0, color: '#0f172a' }}>+ Cadastrar Novo Campo com Validação</h3>
+            <h3 style={{ marginTop: 0, color: '#0c5e31' }}>+ Cadastrar Novo Campo com Validação</h3>
             <p style={{ color: '#64748b', fontSize: '13px' }}>Defina a pergunta e a regra de formatação/validação que o sistema executará automaticamente.</p>
 
             <form onSubmit={handleAdicionarCampo} style={{ display: 'grid', gap: '12px', maxWidth: '650px' }}>
@@ -396,7 +404,7 @@ export default function AdminPage() {
                   <select 
                     value={novoCampoValidacao} 
                     onChange={e => setNovoCampoValidacao(e.target.value)}
-                    style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', fontWeight: 'bold', color: '#0284c7' }}
+                    style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', fontWeight: 'bold', color: '#0c5e31' }}
                   >
                     <option value="none">Nenhuma (Livre)</option>
                     <option value="fullname">Nome Completo (Nome + Sobrenome e Caixa Alta)</option>
@@ -424,14 +432,14 @@ export default function AdminPage() {
 
               <button 
                 type="submit"
-                style={{ padding: '10px 16px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', width: 'fit-content' }}
+                style={{ padding: '10px 18px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', width: 'fit-content' }}
               >
                 Adicionar Campo ao Formulário
               </button>
             </form>
           </div>
 
-          <h3 style={{ color: '#0f172a' }}>Campos Atualmente Ativos no Formulário</h3>
+          <h3 style={{ color: '#0c5e31' }}>Campos Atualmente Ativos no Formulário</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {requiredFields.map(campo => (
               <div key={campo.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
@@ -441,7 +449,7 @@ export default function AdminPage() {
                     Tipo: {campo.field_type}
                   </span>
                   {campo.validation_rule && campo.validation_rule !== 'none' && (
-                    <span style={{ marginLeft: '6px', background: '#e0f2fe', color: '#0369a1', fontSize: '11px', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                    <span style={{ marginLeft: '6px', background: '#e8f5e9', color: '#0c5e31', fontSize: '11px', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
                       Validação: {campo.validation_rule === 'fullname' ? 'Nome Completo' : campo.validation_rule === 'cpf' ? 'CPF Válido' : 'Celular 9 Dígitos'}
                     </span>
                   )}
@@ -467,7 +475,7 @@ export default function AdminPage() {
       {abaAtiva === 'documentos' && (
         <div>
           <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
-            <h3 style={{ marginTop: 0, color: '#0f172a' }}>+ Cadastrar Novo Documento Exigido</h3>
+            <h3 style={{ marginTop: 0, color: '#0c5e31' }}>+ Cadastrar Novo Documento Exigido</h3>
             <p style={{ color: '#64748b', fontSize: '13px' }}>Ao cadastrar um documento aqui, o campo de anexo aparecerá para os candidatos.</p>
 
             <form onSubmit={handleAdicionarDoc} style={{ display: 'grid', gap: '12px', maxWidth: '600px' }}>
@@ -494,14 +502,14 @@ export default function AdminPage() {
               </label>
               <button 
                 type="submit"
-                style={{ padding: '10px 16px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', width: 'fit-content' }}
+                style={{ padding: '10px 18px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', width: 'fit-content' }}
               >
                 Salvar Exigência
               </button>
             </form>
           </div>
 
-          <h3 style={{ color: '#0f172a' }}>Documentos Atualmente Exigidos</h3>
+          <h3 style={{ color: '#0c5e31' }}>Documentos Atualmente Exigidos</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {requiredDocs.map(doc => (
               <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
