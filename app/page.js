@@ -7,14 +7,82 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 );
 
+// --- FUNÇÕES UTILITÁRIAS DE MÁSCARA E VALIDAÇÃO ---
+
+// Formata cada primeira letra em Maiúscula
+function formatarNomeProprio(texto) {
+  return texto
+    .toLowerCase()
+    .split(' ')
+    .map(palavra => palavra.charAt(0).toUpperCase() + palavra.slice(1))
+    .join(' ');
+}
+
+// Valida se possui nome e sobrenome
+function validarNomeSobrenome(texto) {
+  if (!texto) return false;
+  const partes = texto.trim().split(/\s+/);
+  return partes.length >= 2 && partes[0].length >= 2 && partes[1].length >= 2;
+}
+
+// Máscara dinâmica de Celular: (00) 00000-0000
+function aplicarMascaraTelefone(valor) {
+  let v = valor.replace(/\D/g, '').slice(0, 11);
+  if (v.length > 10) {
+    return v.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3');
+  } else if (v.length > 6) {
+    return v.replace(/^(\d{2})(\d{4,5})(\d{0,4})$/, '($1) $2-$3');
+  } else if (v.length > 2) {
+    return v.replace(/^(\d{2})(\d{0,5})$/, '($1) $2');
+  }
+  return v;
+}
+
+// Valida telefone celular de 11 dígitos com DDD
+function validarTelefoneCelular(valor) {
+  const numeros = valor.replace(/\D/g, '');
+  return numeros.length === 11;
+}
+
+// Máscara dinâmica de CPF: 000.000.000-00
+function aplicarMascaraCPF(valor) {
+  let v = valor.replace(/\D/g, '').slice(0, 11);
+  return v
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+}
+
+// Validação oficial do dígito verificador do CPF
+function validarCPF(cpfLimpo) {
+  const cpf = cpfLimpo.replace(/\D/g, '');
+  if (cpf.length !== 11 || /^(\d)\1+$/.test(cpf)) return false;
+
+  let soma = 0;
+  for (let i = 0; i < 9; i++) soma += parseInt(cpf.charAt(i)) * (10 - i);
+  let resto = (soma * 10) % 11;
+  if (resto === 10 || resto === 11) resto = 0;
+  if (resto !== parseInt(cpf.charAt(9))) return false;
+
+  soma = 0;
+  for (let i = 0; i < 10; i++) soma += parseInt(cpf.charAt(i)) * (11 - i);
+  resto = (soma * 10) % 11;
+  if (resto === 10 || resto === 11) resto = 0;
+  if (resto !== parseInt(cpf.charAt(10))) return false;
+
+  return true;
+}
+
+// --- COMPONENTE PRINCIPAL ---
+
 export default function CandidatoPage() {
   const [requiredFields, setRequiredFields] = useState([]);
   const [requiredDocs, setRequiredDocs] = useState([]);
   const [formValues, setFormValues] = useState({});
+  const [erros, setErros] = useState({});
   const [loading, setLoading] = useState(false);
   const [sucesso, setSucesso] = useState(false);
 
-  // Carrega tanto os campos cadastrais quanto os documentos exigidos
   useEffect(() => {
     async function carregarConfiguracoes() {
       // 1. Campos
@@ -37,23 +105,100 @@ export default function CandidatoPage() {
     carregarConfiguracoes();
   }, []);
 
-  function handleInputChange(fieldLabel, valor) {
-    setFormValues(prev => ({ ...prev, [fieldLabel]: valor }));
+  function handleInputChange(field, valorOriginal) {
+    let valor = valorOriginal;
+    const regra = field.validation_rule || 'none';
+
+    // Aplicação das máscaras enquanto o usuário digita
+    if (regra === 'cpf' || field.label.toLowerCase().includes('cpf')) {
+      valor = aplicarMascaraCPF(valor);
+    } else if (regra === 'phone' || field.label.toLowerCase().includes('whatsapp') || field.label.toLowerCase().includes('telefone')) {
+      valor = aplicarMascaraTelefone(valor);
+    }
+
+    setFormValues(prev => ({ ...prev, [field.label]: valor }));
+
+    // Limpa erro do campo enquanto digita
+    if (erros[field.label]) {
+      setErros(prev => ({ ...prev, [field.label]: null }));
+    }
+  }
+
+  function handleInputBlur(field) {
+    const regra = field.validation_rule || 'none';
+    const valorAtual = formValues[field.label] || '';
+
+    // Ao sair do campo (onBlur), padroniza caixa alta para nomes
+    if (regra === 'fullname' || field.label.toLowerCase().includes('nome')) {
+      if (valorAtual) {
+        const formatado = formatarNomeProprio(valorAtual);
+        setFormValues(prev => ({ ...prev, [field.label]: formatado }));
+      }
+    }
+  }
+
+  function validarFormulario() {
+    const novosErros = {};
+
+    for (const f of requiredFields) {
+      const valor = (formValues[f.label] || '').trim();
+      const regra = f.validation_rule || 'none';
+
+      // 1. Validação de campo obrigatório vazio
+      if (f.is_required && !valor) {
+        novosErros[f.label] = 'Este campo é obrigatório.';
+        continue;
+      }
+
+      // Se não for obrigatório e estiver vazio, pula a validação de formato
+      if (!valor) continue;
+
+      // 2. Validação de Nome e Sobrenome
+      if (regra === 'fullname' || f.label.toLowerCase().includes('nome completo') || f.label.toLowerCase().includes('nome da mãe')) {
+        if (!validarNomeSobrenome(valor)) {
+          novosErros[f.label] = 'Por favor, informe o nome e sobrenome completos.';
+        }
+      }
+
+      // 3. Validação de Telefone / Celular (11 dígitos)
+      if (regra === 'phone' || f.label.toLowerCase().includes('whatsapp') || f.label.toLowerCase().includes('celular')) {
+        if (!validarTelefoneCelular(valor)) {
+          novosErros[f.label] = 'Informe um celular válido de 9 dígitos com DDD: (00) 00000-0000.';
+        }
+      }
+
+      // 4. Validação de CPF
+      if (regra === 'cpf' || f.label.toLowerCase().includes('cpf')) {
+        if (!validarCPF(valor)) {
+          novosErros[f.label] = 'CPF inválido. Verifique os números digitados.';
+        }
+      }
+    }
+
+    setErros(novosErros);
+    return Object.keys(novosErros).length === 0;
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
+
+    // Executa as validações antes de enviar
+    if (!validarFormulario()) {
+      alert('Existem dados incompletos ou inválidos no formulário. Verifique os campos destacados em vermelho.');
+      return;
+    }
+
     setLoading(true);
 
     try {
       // Extrai os campos base para a tabela principal
-      const fullName = formValues['Nome Completo'] || Object.values(formValues)[0] || 'Candidato Sem Nome';
+      const fullName = formValues['Nome Completo'] || Object.values(formValues)[0] || 'Candidato';
       const email = formValues['E-mail'] || '';
-      const phone = formValues['WhatsApp / Telefone'] || '';
+      const phone = formValues['WhatsApp / Telefone'] || formValues['Telefone'] || formValues['Celular'] || '';
       const job = formValues['Cargo Pretendido'] || '';
       const dept = formValues['Departamento'] || '';
 
-      // Grava candidato com os campos extras salvos em JSONB
+      // Grava candidato com os campos formatados em JSONB
       const { data: candData, error: candError } = await supabase
         .from('onboarding_candidates')
         .insert([
@@ -147,21 +292,37 @@ export default function CandidatoPage() {
             <p style={{ color: '#64748b', fontSize: '13px' }}>Carregando formulário...</p>
           ) : (
             <div style={{ display: 'grid', gap: '12px' }}>
-              {requiredFields.map(f => (
-                <div key={f.id}>
-                  <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', fontSize: '14px' }}>
-                    {f.label} {f.is_required && <span style={{ color: '#ef4444' }}>*</span>}
-                  </label>
-                  <input 
-                    type={f.field_type || 'text'}
-                    placeholder={f.placeholder || ''}
-                    required={f.is_required}
-                    value={formValues[f.label] || ''}
-                    onChange={e => handleInputChange(f.label, e.target.value)}
-                    style={{ width: '100%', boxSizing: 'border-box', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
-                  />
-                </div>
-              ))}
+              {requiredFields.map(f => {
+                const temErro = Boolean(erros[f.label]);
+                return (
+                  <div key={f.id}>
+                    <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold', fontSize: '14px', color: temErro ? '#dc2626' : '#1e293b' }}>
+                      {f.label} {f.is_required && <span style={{ color: '#ef4444' }}>*</span>}
+                    </label>
+                    <input 
+                      type={f.field_type || 'text'}
+                      placeholder={f.placeholder || ''}
+                      value={formValues[f.label] || ''}
+                      onChange={e => handleInputChange(f, e.target.value)}
+                      onBlur={() => handleInputBlur(f)}
+                      style={{ 
+                        width: '100%', 
+                        boxSizing: 'border-box', 
+                        padding: '10px', 
+                        borderRadius: '6px', 
+                        border: temErro ? '2px solid #ef4444' : '1px solid #cbd5e1',
+                        background: temErro ? '#fef2f2' : '#fff',
+                        outline: 'none'
+                      }} 
+                    />
+                    {temErro && (
+                      <span style={{ display: 'block', marginTop: '4px', color: '#dc2626', fontSize: '12px', fontWeight: '500' }}>
+                        ⚠️ {erros[f.label]}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -196,7 +357,7 @@ export default function CandidatoPage() {
             disabled={loading} 
             style={{ marginTop: '10px', padding: '14px', background: '#0284c7', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px' }}
           >
-            {loading ? 'Enviando admissão...' : 'Concluir e Enviar ao RH'}
+            {loading ? 'Validando e enviando...' : 'Concluir e Enviar ao RH'}
           </button>
         </form>
       )}
