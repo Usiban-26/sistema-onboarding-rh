@@ -468,25 +468,27 @@ export default function AdminPage() {
                       </div>
                     </div>
 
-                    {/* Todos os Dados Preenchidos */}
+                    {/* Todos os Dados Preenchidos: 1 Informação por Linha */}
                     {Object.keys(dadosExtras).length > 0 ? (
-                      <div style={{ padding: '12px 14px', background: '#f8faf9', borderRadius: '6px', fontSize: '13.5px', border: '1px solid #e2e8f0' }}>
-                        <strong style={{ display: 'block', marginBottom: '8px', color: '#0c5e31' }}>Dados Cadastrados:</strong>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px' }}>
+                      <div style={{ padding: '14px 16px', background: '#f8faf9', borderRadius: '6px', fontSize: '14px', border: '1px solid #e2e8f0' }}>
+                        <strong style={{ display: 'block', marginBottom: '10px', color: '#0c5e31', fontSize: '15px' }}>
+                          Dados Cadastrados:
+                        </strong>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                           {Object.entries(dadosExtras).map(([chave, valor]) => (
-                            <span key={chave} style={{ color: '#334155' }}>
-                              <b>{chave}:</b> {String(valor)}
-                            </span>
+                            <div key={chave} style={{ color: '#334155', borderBottom: '1px dashed #e2e8f0', paddingBottom: '6px' }}>
+                              <b style={{ color: '#0f172a' }}>{chave}:</b> {String(valor)}
+                            </div>
                           ))}
                         </div>
                       </div>
                     ) : (
-                      <div style={{ padding: '12px 14px', background: '#f8faf9', borderRadius: '6px', fontSize: '13.5px', border: '1px solid #e2e8f0' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '6px', color: '#334155' }}>
-                          <span><b>Cargo:</b> {c.job_title}</span>
-                          <span><b>Departamento:</b> {c.department}</span>
-                          <span><b>E-mail:</b> {c.email}</span>
-                          <span><b>Telefone:</b> {c.phone}</span>
+                      <div style={{ padding: '14px 16px', background: '#f8faf9', borderRadius: '6px', fontSize: '14px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', color: '#334155' }}>
+                          <div style={{ borderBottom: '1px dashed #e2e8f0', paddingBottom: '6px' }}><b style={{ color: '#0f172a' }}>Cargo:</b> {c.job_title}</div>
+                          <div style={{ borderBottom: '1px dashed #e2e8f0', paddingBottom: '6px' }}><b style={{ color: '#0f172a' }}>Departamento:</b> {c.department}</div>
+                          <div style={{ borderBottom: '1px dashed #e2e8f0', paddingBottom: '6px' }}><b style={{ color: '#0f172a' }}>E-mail:</b> {c.email}</div>
+                          <div style={{ borderBottom: '1px dashed #e2e8f0', paddingBottom: '6px' }}><b style={{ color: '#0f172a' }}>Telefone:</b> {c.phone}</div>
                         </div>
                       </div>
                     )}
