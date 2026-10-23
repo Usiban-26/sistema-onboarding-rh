@@ -79,7 +79,7 @@ export default function CandidatoPage() {
         .from('required_personal_fields')
         .select('*')
         .eq('is_active', true)
-        .order('created_at', { ascending: true });
+        .order('display_order', { ascending: true });
       if (fieldsData) setRequiredFields(fieldsData);
 
       const { data: docsData } = await supabase
