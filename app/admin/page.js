@@ -29,6 +29,7 @@ export default function AdminPage() {
   const [novoCampoTipo, setNovoCampoTipo] = useState('text');
   const [novoCampoPlaceholder, setNovoCampoPlaceholder] = useState('');
   const [novoCampoObrigatorio, setNovoCampoObrigatorio] = useState(true);
+  const [novoCampoValidacao, setNovoCampoValidacao] = useState('none');
 
   async function carregarDados() {
     // 1. Candidatos
@@ -132,14 +133,16 @@ export default function AdminPage() {
         field_type: novoCampoTipo,
         placeholder: novoCampoPlaceholder,
         is_required: novoCampoObrigatorio,
+        validation_rule: novoCampoValidacao,
         is_active: true
       }
     ]);
     if (!error) {
       setNovoCampoLabel('');
       setNovoCampoPlaceholder('');
+      setNovoCampoValidacao('none');
       carregarDados();
-      alert('Campo de dado pessoal adicionado ao formulário!');
+      alert('Campo com validação adicionado ao formulário com sucesso!');
     }
   }
 
@@ -297,8 +300,8 @@ export default function AdminPage() {
                         {/* Exibição dos Dados Dinâmicos Cadastrados */}
                         {Object.keys(dadosExtras).length > 0 && (
                           <div style={{ marginTop: '8px', padding: '8px 12px', background: '#f8fafc', borderRadius: '6px', fontSize: '13px', border: '1px solid #e2e8f0' }}>
-                            <strong style={{ display: 'block', marginBottom: '4px', color: '#0f172a' }}>Outros Dados Informados:</strong>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '6px' }}>
+                            <strong style={{ display: 'block', marginBottom: '4px', color: '#0f172a' }}>Dados Cadastrados:</strong>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '6px' }}>
                               {Object.entries(dadosExtras).map(([chave, valor]) => (
                                 <span key={chave} style={{ color: '#334155' }}>
                                   <b>{chave}:</b> {String(valor)}
@@ -360,36 +363,55 @@ export default function AdminPage() {
       {abaAtiva === 'campos' && (
         <div>
           <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
-            <h3 style={{ marginTop: 0, color: '#0f172a' }}>+ Cadastrar Novo Campo de Dado Pessoal</h3>
-            <p style={{ color: '#64748b', fontSize: '13px' }}>Defina novas perguntas para o candidato preencher (ex: Nome da Mãe, PIS, Estado Civil, Banco).</p>
+            <h3 style={{ marginTop: 0, color: '#0f172a' }}>+ Cadastrar Novo Campo com Validação</h3>
+            <p style={{ color: '#64748b', fontSize: '13px' }}>Defina a pergunta e a regra de formatação/validação que o sistema executará automaticamente.</p>
 
-            <form onSubmit={handleAdicionarCampo} style={{ display: 'grid', gap: '12px', maxWidth: '600px' }}>
+            <form onSubmit={handleAdicionarCampo} style={{ display: 'grid', gap: '12px', maxWidth: '650px' }}>
               <input 
-                placeholder="Título do Campo (Ex: Nome da Mãe, PIS, Estado Civil)"
+                placeholder="Título do Campo (Ex: Nome da Mãe, CPF, WhatsApp, Estado Civil)"
                 value={novoCampoLabel}
                 onChange={e => setNovoCampoLabel(e.target.value)}
                 required
                 style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
               />
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <select 
-                  value={novoCampoTipo} 
-                  onChange={e => setNovoCampoTipo(e.target.value)}
-                  style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff' }}
-                >
-                  <option value="text">Texto Simples</option>
-                  <option value="date">Data</option>
-                  <option value="tel">Telefone / WhatsApp</option>
-                  <option value="email">E-mail</option>
-                  <option value="number">Número</option>
-                </select>
-                <input 
-                  placeholder="Exemplo no campo (Placeholder)"
-                  value={novoCampoPlaceholder}
-                  onChange={e => setNovoCampoPlaceholder(e.target.value)}
-                  style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
-                />
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>Tipo de Entrada</label>
+                  <select 
+                    value={novoCampoTipo} 
+                    onChange={e => setNovoCampoTipo(e.target.value)}
+                    style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff' }}
+                  >
+                    <option value="text">Texto Simples</option>
+                    <option value="date">Data</option>
+                    <option value="tel">Telefone</option>
+                    <option value="email">E-mail</option>
+                    <option value="number">Número</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>Regra de Validação & Máscara</label>
+                  <select 
+                    value={novoCampoValidacao} 
+                    onChange={e => setNovoCampoValidacao(e.target.value)}
+                    style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', fontWeight: 'bold', color: '#0284c7' }}
+                  >
+                    <option value="none">Nenhuma (Livre)</option>
+                    <option value="fullname">Nome Completo (Nome + Sobrenome e Caixa Alta)</option>
+                    <option value="cpf">CPF (Máscara + Validador Oficial)</option>
+                    <option value="phone">WhatsApp / Celular (Máscara 9 Dígitos)</option>
+                  </select>
+                </div>
               </div>
+
+              <input 
+                placeholder="Exemplo visual no campo (Placeholder)"
+                value={novoCampoPlaceholder}
+                onChange={e => setNovoCampoPlaceholder(e.target.value)}
+                style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+              />
 
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: 'pointer' }}>
                 <input 
@@ -418,6 +440,11 @@ export default function AdminPage() {
                   <span style={{ marginLeft: '8px', background: '#e2e8f0', color: '#475569', fontSize: '11px', padding: '2px 6px', borderRadius: '4px' }}>
                     Tipo: {campo.field_type}
                   </span>
+                  {campo.validation_rule && campo.validation_rule !== 'none' && (
+                    <span style={{ marginLeft: '6px', background: '#e0f2fe', color: '#0369a1', fontSize: '11px', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                      Validação: {campo.validation_rule === 'fullname' ? 'Nome Completo' : campo.validation_rule === 'cpf' ? 'CPF Válido' : 'Celular 9 Dígitos'}
+                    </span>
+                  )}
                   {campo.is_required && (
                     <span style={{ marginLeft: '6px', background: '#fef2f2', color: '#b91c1c', fontSize: '11px', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
                       Obrigatório
