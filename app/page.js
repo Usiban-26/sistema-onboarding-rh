@@ -23,13 +23,9 @@ function validarNomeSobrenome(texto) {
 
 function aplicarMascaraTelefone(valor) {
   let v = valor.replace(/\D/g, '').slice(0, 11);
-  if (v.length > 10) {
-    return v.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3');
-  } else if (v.length > 6) {
-    return v.replace(/^(\d{2})(\d{4,5})(\d{0,4})$/, '($1) $2-$3');
-  } else if (v.length > 2) {
-    return v.replace(/^(\d{2})(\d{0,5})$/, '($1) $2');
-  }
+  if (v.length > 10) return v.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3');
+  if (v.length > 6) return v.replace(/^(\d{2})(\d{4,5})(\d{0,4})$/, '($1) $2-$3');
+  if (v.length > 2) return v.replace(/^(\d{2})(\d{0,5})$/, '($1) $2');
   return v;
 }
 
@@ -72,6 +68,8 @@ export default function CandidatoPage() {
   const [erros, setErros] = useState({});
   const [loading, setLoading] = useState(false);
   const [sucesso, setSucesso] = useState(false);
+  const [candidatoExistenteId, setCandidatoExistenteId] = useState(null);
+  const [avisoReenvio, setAvisoReenvio] = useState('');
 
   useEffect(() => {
     async function carregarConfiguracoes() {
@@ -79,7 +77,8 @@ export default function CandidatoPage() {
         .from('required_personal_fields')
         .select('*')
         .eq('is_active', true)
-        .order('display_order', { ascending: true });
+        .order('display_order', { ascending: true })
+        .order('created_at', { ascending: true });
       if (fieldsData) setRequiredFields(fieldsData);
 
       const { data: docsData } = await supabase
@@ -92,12 +91,45 @@ export default function CandidatoPage() {
     carregarConfiguracoes();
   }, []);
 
+  // VERIFICA SE O CANDIDATO JÁ TEM CADASTRO PELO CPF PARA EVITAR DUPLICAÇÃO
+  async function verificarCadastroExistente(cpfFormatado) {
+    const apenasNumeros = cpfFormatado.replace(/\D/g, '');
+    if (apenasNumeros.length !== 11) return;
+
+    const { data: candData } = await supabase
+      .from('onboarding_candidates')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (candData) {
+      const achado = candData.find(c => {
+        const cpfSalvo = (c.custom_data?.['CPF'] || '').replace(/\D/g, '');
+        return cpfSalvo === apenasNumeros;
+      });
+
+      if (achado) {
+        setCandidatoExistenteId(achado.id);
+        if (achado.custom_data) {
+          setFormValues(prev => ({ ...prev, ...achado.custom_data }));
+        }
+        if (achado.feedback_reason) {
+          setAvisoReenvio(`Atenção: Identificamos que você está reenviando dados. Pendência anterior informada pelo RH: "${achado.feedback_reason}". Anexe o documento correto para atualizar seu processo.`);
+        } else {
+          setAvisoReenvio('Cadastro já localizado. Seus dados foram carregados abaixo; você pode atualizá-los ou reenviar os anexos pendentes.');
+        }
+      }
+    }
+  }
+
   function handleInputChange(field, valorOriginal) {
     let valor = valorOriginal;
     const regra = field.validation_rule || 'none';
 
     if (regra === 'cpf' || field.label.toLowerCase().includes('cpf')) {
       valor = aplicarMascaraCPF(valor);
+      if (valor.replace(/\D/g, '').length === 11) {
+        verificarCadastroExistente(valor);
+      }
     } else if (regra === 'phone' || field.label.toLowerCase().includes('whatsapp') || field.label.toLowerCase().includes('telefone')) {
       valor = aplicarMascaraTelefone(valor);
     }
@@ -157,7 +189,7 @@ export default function CandidatoPage() {
   async function handleSubmit(e) {
     e.preventDefault();
     if (!validarFormulario()) {
-      alert('Existem dados incompletos ou inválidos no formulário. Verifique os campos destacados em vermelho.');
+      alert('Existem dados incompletos ou inválidos no formulário. Verifique os campos destacados.');
       return;
     }
 
@@ -170,30 +202,47 @@ export default function CandidatoPage() {
       const job = formValues['Cargo Pretendido'] || '';
       const dept = formValues['Departamento'] || '';
 
-      const { data: candData, error: candError } = await supabase
-        .from('onboarding_candidates')
-        .insert([
-          {
+      let candidateId = candidatoExistenteId;
+
+      // SE JÁ EXISTE CADASTRO, ATUALIZA (UPDATE) SEM DUPLICAR
+      if (candidateId) {
+        const { error: updateError } = await supabase
+          .from('onboarding_candidates')
+          .update({
             full_name: fullName,
             email,
             phone,
             job_title: job,
             department: dept,
             custom_data: formValues,
-            status: 'Pendente'
-          }
-        ])
-        .select()
-        .single();
+            status: 'Pendente' // Retorna para conferência do RH
+          })
+          .eq('id', candidateId);
 
-      if (candError || !candData) {
-        alert('Erro ao gravar dados: ' + (candError?.message || 'Falha'));
-        setLoading(false);
-        return;
+        if (updateError) throw updateError;
+      } else {
+        // NOVO CADASTRO
+        const { data: candData, error: candError } = await supabase
+          .from('onboarding_candidates')
+          .insert([
+            {
+              full_name: fullName,
+              email,
+              phone,
+              job_title: job,
+              department: dept,
+              custom_data: formValues,
+              status: 'Pendente'
+            }
+          ])
+          .select()
+          .single();
+
+        if (candError || !candData) throw candError;
+        candidateId = candData.id;
       }
 
-      const candidateId = candData.id;
-
+      // PROCESSA ANEXOS DE ARQUIVOS
       for (const doc of requiredDocs) {
         const inputElement = e.target.elements[`doc_${doc.id}`];
         const selectedFile = inputElement?.files?.[0];
@@ -214,6 +263,14 @@ export default function CandidatoPage() {
               .from('documentos-rh')
               .getPublicUrl(nomeUnico);
 
+            // Remove versão anterior deste documento se estiver reenviando
+            await supabase
+              .from('candidate_documents')
+              .delete()
+              .eq('candidate_id', candidateId)
+              .eq('document_name', doc.title);
+
+            // Insere o novo arquivo atualizado
             await supabase.from('candidate_documents').insert([
               {
                 candidate_id: candidateId,
@@ -227,7 +284,7 @@ export default function CandidatoPage() {
 
       setSucesso(true);
     } catch (err) {
-      alert('Erro inesperado: ' + err.message);
+      alert('Erro ao enviar dados: ' + err.message);
     }
 
     setLoading(false);
@@ -251,8 +308,14 @@ export default function CandidatoPage() {
       </header>
 
       <div style={{ maxWidth: '680px', margin: '0 auto' }}>
+        {avisoReenvio && !sucesso && (
+          <div style={{ background: '#e0f2fe', borderLeft: '4px solid #0284c7', padding: '12px 16px', borderRadius: '6px', marginBottom: '16px', fontSize: '13.5px', color: '#0369a1' }}>
+            ℹ️ {avisoReenvio}
+          </div>
+        )}
+
         {sucesso ? (
-          <div style={{ background: '#ffffff', borderTop: '5px solid #0c5e31', padding: '36px 24px', borderRadius: '10px', textAlign: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }}>
+          <div style={{ background: '#ffffff', borderTop: '5px solid #003366', padding: '36px 24px', borderRadius: '10px', textAlign: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }}>
             <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: '#e8f5e9', color: '#0c5e31', fontSize: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px auto' }}>
               ✓
             </div>
@@ -261,7 +324,7 @@ export default function CandidatoPage() {
               Os seus dados foram enviados com sucesso ao setor de Recursos Humanos da Usina Bandeirante para validação.
             </p>
             <button 
-              onClick={() => { setSucesso(false); setFormValues({}); }} 
+              onClick={() => { setSucesso(false); setFormValues({}); setCandidatoExistenteId(null); setAvisoReenvio(''); }} 
               style={{ marginTop: '18px', padding: '12px 24px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}
             >
               Realizar Novo Envio
@@ -288,7 +351,7 @@ export default function CandidatoPage() {
                     return (
                       <div key={f.id}>
                         <label style={{ display: 'block', marginBottom: '5px', fontWeight: '600', fontSize: '13.5px', color: temErro ? '#dc2626' : '#334155' }}>
-                          {f.label} {f.is_required && <span style={{ color: '#dc2626' }}>*</span>}
+                          {f.label} {f.is_required && !candidatoExistenteId && <span style={{ color: '#dc2626' }}>*</span>}
                         </label>
                         <input 
                           type={f.field_type || 'text'}
@@ -336,14 +399,14 @@ export default function CandidatoPage() {
                   {requiredDocs.map(doc => (
                     <div key={doc.id} style={{ background: '#f8faf9', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                       <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '14px', color: '#1e293b' }}>
-                        {doc.title} {doc.is_required && <span style={{ color: '#dc2626' }}>*</span>}
+                        {doc.title} {doc.is_required && !candidatoExistenteId && <span style={{ color: '#dc2626' }}>*</span>}
                       </label>
                       {doc.description && <span style={{ display: 'block', color: '#64748b', fontSize: '12px', marginBottom: '8px' }}>{doc.description}</span>}
                       <input 
                         name={`doc_${doc.id}`}
                         type="file" 
                         accept=".pdf,image/*" 
-                        required={doc.is_required}
+                        required={doc.is_required && !candidatoExistenteId}
                         style={{ width: '100%', boxSizing: 'border-box', padding: '8px', background: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px' }} 
                       />
                     </div>
@@ -368,7 +431,7 @@ export default function CandidatoPage() {
                   boxShadow: '0 2px 4px rgba(12, 94, 49, 0.2)'
                 }}
               >
-                {loading ? 'Processando envio...' : 'Concluir Cadastro e Enviar ao RH'}
+                {loading ? 'Processando envio...' : (candidatoExistenteId ? 'Atualizar Dados e Reenviar ao RH' : 'Concluir Cadastro e Enviar ao RH')}
               </button>
             </div>
           </form>
