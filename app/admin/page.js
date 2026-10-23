@@ -126,6 +126,45 @@ export default function AdminPage() {
     if (!error) carregarDados();
   }
 
+  // --- CONTATO DIRETO VIA WHATSAPP A PARTIR DO CARD ---
+  function abrirWhatsAppCandidato(candidato) {
+    // Tenta encontrar o telefone em c.phone ou dentro do custom_data
+    let telefoneBruto = candidato.phone || '';
+    if (!telefoneBruto && candidato.custom_data) {
+      const chaves = Object.keys(candidato.custom_data);
+      const chaveTel = chaves.find(k => {
+        const lower = k.toLowerCase();
+        return lower.includes('whatsapp') || lower.includes('telefone') || lower.includes('celular');
+      });
+      if (chaveTel) telefoneBruto = candidato.custom_data[chaveTel];
+    }
+
+    const numeros = (telefoneBruto || '').replace(/\D/g, '');
+    if (!numeros || numeros.length < 10) {
+      alert('Número de WhatsApp não encontrado ou formato inválido para este candidato.');
+      return;
+    }
+
+    let fone = numeros;
+    if (!fone.startsWith('55') && fone.length <= 11) {
+      fone = '55' + fone;
+    }
+
+    const primeiroNome = (candidato.full_name || 'Candidato').trim().split(' ')[0];
+    
+    // Mensagem contextual baseada no status atual
+    let texto = `Olá ${primeiroNome}, aqui é do setor de Recursos Humanos da Usina Bandeirante (USIBAN).`;
+    if (candidato.status === 'Aprovado') {
+      texto = `Olá ${primeiroNome}, parabéns! Seus documentos e cadastro foram validados e aprovados pelo RH da Usina Bandeirante (USIBAN). Em breve passaremos as orientações para o início das atividades.`;
+    } else if (candidato.status?.includes('Rejeitado')) {
+      const motivo = candidato.feedback_reason ? ` Motivo: ${candidato.feedback_reason}` : '';
+      texto = `Olá ${primeiroNome}, estamos revisando seu cadastro na Usina Bandeirante (USIBAN) e identificamos uma pendência nos documentos enviados.${motivo} Por favor, acesse o portal para reenviar: ${LINK_OFICIAL_PORTAL}`;
+    }
+
+    const url = `https://wa.me/${fone}?text=${encodeURIComponent(texto)}`;
+    window.open(url, '_blank');
+  }
+
   // --- EXPORTAÇÃO CSV PARA EXCEL (UTF-8 COM BOM E SEPARADOR ;) ---
   function handleExportarCSV() {
     const aprovados = candidates.filter(c => c.status === 'Aprovado');
@@ -521,7 +560,7 @@ export default function AdminPage() {
                 return (
                   <div key={c.id} style={{ padding: '18px 20px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                     
-                    {/* Topo Limpo: Nome, Status e Botões de Ação */}
+                    {/* Topo Limpo: Nome, Status, Botão WhatsApp e Ações */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <strong style={{ fontSize: '18px', color: '#0f172a' }}>{c.full_name}</strong>
@@ -530,7 +569,29 @@ export default function AdminPage() {
                         </span>
                       </div>
 
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        {/* Botão de WhatsApp Direto */}
+                        <button
+                          type="button"
+                          onClick={() => abrirWhatsAppCandidato(c)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            padding: '7px 12px',
+                            background: '#25D366',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '5px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            fontSize: '13px'
+                          }}
+                          title="Abrir WhatsApp com este candidato"
+                        >
+                          <span>📱</span> WhatsApp
+                        </button>
+
                         <button onClick={() => handleAprovar(c.id)} style={{ padding: '7px 14px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
                           Aprovar ✓
                         </button>
