@@ -447,44 +447,21 @@ export default function AdminPage() {
             {candidatosFiltrados.length === 0 ? (
               <p style={{ color: '#64748b' }}>Nenhum candidato encontrado nesta categoria.</p>
             ) : (
-              candidatosFiltrados.map((c) => {
+ candidatosFiltrados.map((c) => {
                 const badge = getStatusBadge(c.status);
                 const docsEnviados = candidateDocs[c.id] || [];
                 const dadosExtras = c.custom_data || {};
 
                 return (
                   <div key={c.id} style={{ padding: '18px 20px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
-                          <strong style={{ fontSize: '17px', color: '#0f172a' }}>{c.full_name}</strong>
-                          <span style={{ backgroundColor: badge.bg, color: badge.color, padding: '3px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold' }}>
-                            {badge.label}
-                          </span>
-                        </div>
-                        <div style={{ color: '#475569', fontSize: '14px', lineHeight: '1.4' }}>
-                          <b>Cargo:</b> {c.job_title} | <b>Depto:</b> {c.department}<br />
-                          <b>Contato:</b> {c.email} | {c.phone}
-                        </div>
-
-                        {Object.keys(dadosExtras).length > 0 && (
-                          <div style={{ marginTop: '8px', padding: '8px 12px', background: '#f8faf9', borderRadius: '6px', fontSize: '13px', border: '1px solid #e2e8f0' }}>
-                            <strong style={{ display: 'block', marginBottom: '4px', color: '#0c5e31' }}>Dados Cadastrados:</strong>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '6px' }}>
-                              {Object.entries(dadosExtras).map(([chave, valor]) => (
-                                <span key={chave} style={{ color: '#334155' }}>
-                                  <b>{chave}:</b> {String(valor)}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {c.feedback_reason && (
-                          <div style={{ marginTop: '8px', padding: '8px', background: '#fef2f2', borderLeft: '4px solid #ef4444', color: '#991b1b', fontSize: '13px' }}>
-                            <b>Motivo:</b> {c.feedback_reason}
-                          </div>
-                        )}
+                    
+                    {/* Cabeçalho do Card: Apenas Nome, Badge de Status e Botões de Ação */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <strong style={{ fontSize: '18px', color: '#0f172a' }}>{c.full_name}</strong>
+                        <span style={{ backgroundColor: badge.bg, color: badge.color, padding: '3px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold' }}>
+                          {badge.label}
+                        </span>
                       </div>
 
                       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -497,6 +474,38 @@ export default function AdminPage() {
                       </div>
                     </div>
 
+                    {/* Todos os Dados Cadastrados Unificados */}
+                    {Object.keys(dadosExtras).length > 0 ? (
+                      <div style={{ padding: '12px 14px', background: '#f8faf9', borderRadius: '6px', fontSize: '13.5px', border: '1px solid #e2e8f0' }}>
+                        <strong style={{ display: 'block', marginBottom: '8px', color: '#0c5e31' }}>Dados Cadastrados:</strong>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px' }}>
+                          {Object.entries(dadosExtras).map(([chave, valor]) => (
+                            <span key={chave} style={{ color: '#334155' }}>
+                              <b>{chave}:</b> {String(valor)}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      /* Fallback para cadastros antigos que não tinham custom_data */
+                      <div style={{ padding: '12px 14px', background: '#f8faf9', borderRadius: '6px', fontSize: '13.5px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '6px', color: '#334155' }}>
+                          <span><b>Cargo:</b> {c.job_title}</span>
+                          <span><b>Departamento:</b> {c.department}</span>
+                          <span><b>E-mail:</b> {c.email}</span>
+                          <span><b>Telefone:</b> {c.phone}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Motivo de Pendência / Rejeição (se houver) */}
+                    {c.feedback_reason && (
+                      <div style={{ marginTop: '10px', padding: '8px 12px', background: '#fef2f2', borderLeft: '4px solid #ef4444', color: '#991b1b', fontSize: '13px' }}>
+                        <b>Motivo da Pendência:</b> {c.feedback_reason}
+                      </div>
+                    )}
+
+                    {/* Documentos Anexados */}
                     <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px dashed #cbd5e1' }}>
                       <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#334155', display: 'block', marginBottom: '8px' }}>
                         Documentos Enviados ({docsEnviados.length}):
@@ -522,10 +531,6 @@ export default function AdminPage() {
                   </div>
                 );
               })
-            )}
-          </div>
-        </div>
-      )}
 
       {/* ABA 2: CONVITES WHATSAPP */}
       {abaAtiva === 'convites' && (
