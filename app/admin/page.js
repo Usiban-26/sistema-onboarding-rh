@@ -170,7 +170,7 @@ export default function AdminPage() {
               style={{ width: '85px', height: 'auto', marginBottom: '10px' }} 
             />
             <h2 style={{ margin: 0, color: '#0c5e31', fontSize: '20px', fontWeight: 'bold' }}>Gestão de RH</h2>
-            <small style={{ color: '#64748b' }}>Usina Bandeirante</small>
+            <small style={{ color: '#64748b' }}>Usiban</small>
           </div>
           <input 
             type="password" 
