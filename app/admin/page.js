@@ -75,7 +75,7 @@ export default function AdminPage() {
       .order('created_at', { ascending: true });
     if (reqDocs) setRequiredDocs(reqDocs);
 
-    // 4. Campos Pessoais Exigidos em ordem sequencial
+    // 4. Campos Pessoais Exigidos
     const { data: reqFields } = await supabase
       .from('required_personal_fields')
       .select('*')
@@ -125,20 +125,16 @@ export default function AdminPage() {
     if (!error) carregarDados();
   }
 
-  // --- REORDENAÇÃO PRECISA DOS CAMPOS (1 EM 1 POSIÇÃO) ---
   async function handleMoverCampo(index, direcao) {
     const novoIndex = direcao === 'cima' ? index - 1 : index + 1;
     if (novoIndex < 0 || novoIndex >= requiredFields.length) return;
 
-    // 1. Troca a posição imediatamente na lista local
     const novaLista = [...requiredFields];
     const [itemRemovido] = novaLista.splice(index, 1);
     novaLista.splice(novoIndex, 0, itemRemovido);
 
-    // 2. Atualiza a tela de imediato
     setRequiredFields(novaLista);
 
-    // 3. Salva a nova sequência exata (1, 2, 3...) no banco
     for (let i = 0; i < novaLista.length; i++) {
       await supabase
         .from('required_personal_fields')
@@ -147,7 +143,6 @@ export default function AdminPage() {
     }
   }
 
-  // --- GESTÃO DE CONVITES ---
   async function handleAdicionarConviteIndividual(e) {
     e.preventDefault();
     if (!conviteNome || !conviteTelefone) return;
@@ -237,7 +232,6 @@ export default function AdminPage() {
     carregarDados();
   }
 
-  // --- DEMAIS MÉTODOS ---
   async function handleAdicionarDoc(e) {
     e.preventDefault();
     if (!novoDocTitulo) return;
@@ -447,7 +441,7 @@ export default function AdminPage() {
             {candidatosFiltrados.length === 0 ? (
               <p style={{ color: '#64748b' }}>Nenhum candidato encontrado nesta categoria.</p>
             ) : (
- candidatosFiltrados.map((c) => {
+              candidatosFiltrados.map((c) => {
                 const badge = getStatusBadge(c.status);
                 const docsEnviados = candidateDocs[c.id] || [];
                 const dadosExtras = c.custom_data || {};
@@ -455,7 +449,7 @@ export default function AdminPage() {
                 return (
                   <div key={c.id} style={{ padding: '18px 20px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
                     
-                    {/* Cabeçalho do Card: Apenas Nome, Badge de Status e Botões de Ação */}
+                    {/* Topo Limpo: Nome, Badge e Ações */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <strong style={{ fontSize: '18px', color: '#0f172a' }}>{c.full_name}</strong>
@@ -474,7 +468,7 @@ export default function AdminPage() {
                       </div>
                     </div>
 
-                    {/* Todos os Dados Cadastrados Unificados */}
+                    {/* Todos os Dados Preenchidos */}
                     {Object.keys(dadosExtras).length > 0 ? (
                       <div style={{ padding: '12px 14px', background: '#f8faf9', borderRadius: '6px', fontSize: '13.5px', border: '1px solid #e2e8f0' }}>
                         <strong style={{ display: 'block', marginBottom: '8px', color: '#0c5e31' }}>Dados Cadastrados:</strong>
@@ -487,7 +481,6 @@ export default function AdminPage() {
                         </div>
                       </div>
                     ) : (
-                      /* Fallback para cadastros antigos que não tinham custom_data */
                       <div style={{ padding: '12px 14px', background: '#f8faf9', borderRadius: '6px', fontSize: '13.5px', border: '1px solid #e2e8f0' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '6px', color: '#334155' }}>
                           <span><b>Cargo:</b> {c.job_title}</span>
@@ -498,14 +491,14 @@ export default function AdminPage() {
                       </div>
                     )}
 
-                    {/* Motivo de Pendência / Rejeição (se houver) */}
+                    {/* Motivo de Pendência */}
                     {c.feedback_reason && (
                       <div style={{ marginTop: '10px', padding: '8px 12px', background: '#fef2f2', borderLeft: '4px solid #ef4444', color: '#991b1b', fontSize: '13px' }}>
                         <b>Motivo da Pendência:</b> {c.feedback_reason}
                       </div>
                     )}
 
-                    {/* Documentos Anexados */}
+                    {/* Documentos */}
                     <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px dashed #cbd5e1' }}>
                       <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#334155', display: 'block', marginBottom: '8px' }}>
                         Documentos Enviados ({docsEnviados.length}):
@@ -531,6 +524,10 @@ export default function AdminPage() {
                   </div>
                 );
               })
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ABA 2: CONVITES WHATSAPP */}
       {abaAtiva === 'convites' && (
@@ -648,7 +645,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* ABA 3: CAMPOS DE DADOS PESSOAIS COM REORDENAÇÃO */}
+      {/* ABA 3: CAMPOS DE DADOS PESSOAIS */}
       {abaAtiva === 'campos' && (
         <div>
           <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
