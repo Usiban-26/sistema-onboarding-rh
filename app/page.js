@@ -7,7 +7,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 );
 
-// Formata cada primeira letra em Maiúscula
 function formatarNomeProprio(texto) {
   return texto
     .toLowerCase()
@@ -16,14 +15,12 @@ function formatarNomeProprio(texto) {
     .join(' ');
 }
 
-// Valida se possui nome e sobrenome
 function validarNomeSobrenome(texto) {
   if (!texto) return false;
   const partes = texto.trim().split(/\s+/);
   return partes.length >= 2 && partes[0].length >= 2 && partes[1].length >= 2;
 }
 
-// Máscara dinâmica de Celular: (00) 00000-0000
 function aplicarMascaraTelefone(valor) {
   let v = valor.replace(/\D/g, '').slice(0, 11);
   if (v.length > 10) {
@@ -41,15 +38,14 @@ function validarTelefoneCelular(valor) {
   return numeros.length === 11;
 }
 
-// Máscara dinâmica de CPF: 000.000.000-00
 function aplicarMascaraCPF(valor) {
   let v = valor.replace(/\D/g, '').slice(0, 11);
   return v
     .replace(/(\d{3})(\d)/, '$1.$2')
-    .replace(/(\d{3})(\d)/, '$1.$2') .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
 }
 
-// Validação oficial do dígito verificador do CPF
 function validarCPF(cpfLimpo) {
   const cpf = cpfLimpo.replace(/\D/g, '');
   if (cpf.length !== 11 || /^(\d)\1+$/.test(cpf)) return false;
@@ -239,8 +235,6 @@ export default function CandidatoPage() {
 
   return (
     <main style={{ minHeight: '100vh', background: '#f4f6f5', padding: '30px 16px', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#1e293b' }}>
-      
-      {/* Topo Institucional USIBAN */}
       <header style={{ textAlign: 'center', marginBottom: '24px' }}>
         <img 
           src="/logo-usiban.png" 
@@ -275,9 +269,7 @@ export default function CandidatoPage() {
           </div>
         ) : (
           <form onSubmit={handleSubmit} style={{ background: '#ffffff', borderRadius: '12px', boxShadow: '0 4px 14px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-            
             <div style={{ background: '#0c5e31', height: '6px' }}></div>
-
             <div style={{ padding: '28px' }}>
               <div style={{ marginBottom: '20px' }}>
                 <h2 style={{ margin: 0, fontSize: '18px', color: '#0c5e31', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -338,4 +330,57 @@ export default function CandidatoPage() {
               </div>
 
               {requiredDocs.length === 0 ? (
-                <p style={{ color: '#64748b',
+                <p style={{ color: '#64748b', fontSize: '13px' }}>Carregando lista de documentos solicitados...</p>
+              ) : (
+                <div style={{ display: 'grid', gap: '14px' }}>
+                  {requiredDocs.map(doc => (
+                    <div key={doc.id} style={{ background: '#f8faf9', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                      <label style={{ display: 'block', marginBottom: '4px', fontWeight: '600', fontSize: '14px', color: '#1e293b' }}>
+                        {doc.title} {doc.is_required && <span style={{ color: '#dc2626' }}>*</span>}
+                      </label>
+                      {doc.description && <span style={{ display: 'block', color: '#64748b', fontSize: '12px', marginBottom: '8px' }}>{doc.description}</span>}
+                      <input 
+                        name={`doc_${doc.id}`}
+                        type="file" 
+                        accept=".pdf,image/*" 
+                        required={doc.is_required}
+                        style={{ width: '100%', boxSizing: 'border-box', padding: '8px', background: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px' }} 
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button 
+                type="submit" 
+                disabled={loading} 
+                style={{ 
+                  marginTop: '24px', 
+                  width: '100%', 
+                  padding: '14px', 
+                  background: loading ? '#6b7280' : '#0c5e31', 
+                  color: '#ffffff', 
+                  border: 'none', 
+                  borderRadius: '6px', 
+                  cursor: loading ? 'not-allowed' : 'pointer', 
+                  fontWeight: '700', 
+                  fontSize: '15px', 
+                  boxShadow: '0 2px 4px rgba(12, 94, 49, 0.2)'
+                }}
+              >
+                {loading ? 'Processando envio...' : 'Concluir Cadastro e Enviar ao RH'}
+              </button>
+            </div>
+          </form>
+        )}
+
+        <footer style={{ textAlign: 'center', marginTop: '24px', color: '#94a3b8', fontSize: '12px' }}>
+          <span>© {new Date().getFullYear()} Açúcar e Álcool Bandeirantes S.A. • USIBAN</span>
+          <div style={{ marginTop: '6px' }}>
+            <a href="/admin" style={{ color: '#0c5e31', textDecoration: 'none', fontWeight: 'bold' }}>Acesso Restrito RH</a>
+          </div>
+        </footer>
+      </div>
+    </main>
+  );
+}
