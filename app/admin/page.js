@@ -385,7 +385,7 @@ export default function AdminPage() {
               onError={(e) => { e.currentTarget.style.display = 'none'; }} 
               style={{ width: '90px', height: 'auto', marginBottom: '10px' }} 
             />
-            <h2 style={{ margin: 0, color: '#0c5e31', fontSize: '20px', fontWeight: '800' }}>Portal RH & DP</h2>
+            <h2 style={{ margin: 0, color: '#0c5e31', fontSize: '20px', fontWeight: '800' }}>Portal RH</h2>
             <small style={{ color: '#64748b' }}>Açúcar e Álcool Bandeirantes S.A.</small>
           </div>
 
