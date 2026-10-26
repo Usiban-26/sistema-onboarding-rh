@@ -117,12 +117,12 @@ export default function AdminPage() {
     return fone;
   }
 
-  // 1. APROVAÇÃO COM AGENDAMENTO E DISPARO WHATSAPP
+  // APROVAR COM AGENDAMENTO
   async function handleAprovar(candidato) {
-    const dataExame = prompt('Data e Horário do Exame Médico Admissional (Ex: 28/10 às 08:30 no SESI):');
+    const dataExame = prompt('Data e Horário do Exame Médico Admissional:');
     if (dataExame === null) return;
 
-    const dataIntegracao = prompt('Data e Horário da Integração na Usina (Ex: 03/11 às 07:30 no RH):');
+    const dataIntegracao = prompt('Data e Horário da Integração na Usina:');
     if (dataIntegracao === null) return;
 
     const { error } = await supabase
@@ -143,14 +143,14 @@ export default function AdminPage() {
       if (fone && fone.length >= 10) {
         window.open(`https://wa.me/${fone}?text=${encodeURIComponent(texto)}`, '_blank');
       } else {
-        alert('Candidato aprovado! (WhatsApp não localizado para abertura automática)');
+        alert('Candidato aprovado com sucesso!');
       }
     }
   }
 
-  // 2. REJEIÇÃO COM MOTIVO E DISPARO WHATSAPP
+  // REJEITAR COM PENDÊNCIA
   async function handleRejeitar(candidato) {
-    const motivo = prompt('Informe o motivo da pendência com os documentos/dados (Ex: RG ilegível, CPF com dígito trocado):');
+    const motivo = prompt('Informe o motivo da pendência com os documentos/dados (Ex: RG ilegível, CPF incorreto):');
     if (!motivo) return;
 
     const { error } = await supabase
@@ -163,17 +163,41 @@ export default function AdminPage() {
       const fone = extrairTelefone(candidato);
       const primeiroNome = (candidato.full_name || 'Candidato').trim().split(' ')[0];
 
-      const texto = `Olá ${primeiroNome}, aqui é do setor de Recursos Humanos da Usina Bandeirante (USIBAN).\n\nIdentificamos uma pendência na documentação enviada para sua admissão:\n⚠️ *Motivo da Pendência:* ${motivo}\n\nPor favor, acesse o link a seguir para reenviar o documento corrigido ou ajustar os dados:\n👉 ${LINK_OFICIAL_PORTAL}\n\nQualquer dúvida, responda por aqui.`;
+      const texto = `Olá ${primeiroNome}, aqui é do setor de Recursos Humanos da Usina Bandeirante (USIBAN).\n\nIdentificamos uma pendência na documentação enviada para sua admissão:\n⚠️ *Motivo da Pendência:* ${motivo}\n\nPor favor, acesse o link a seguir para corrigir seus dados ou reenviar os documentos pendentes:\n👉 ${LINK_OFICIAL_PORTAL}\n\nQualquer dúvida, responda por aqui.`;
 
       if (fone && fone.length >= 10) {
         window.open(`https://wa.me/${fone}?text=${encodeURIComponent(texto)}`, '_blank');
       } else {
-        alert('Status alterado para pendência! (WhatsApp não localizado)');
+        alert('Status alterado para pendência!');
       }
     }
   }
 
-  // 4. EDIÇÃO DE DADOS PELO RH
+  // EXCLUSÃO PERMANENTE COM ALERTA REFORÇADO
+  async function handleExcluirCandidato(candidato) {
+    const mensagemAviso = `⚠️ ATENÇÃO - AÇÃO IRREVERSÍVEL ⚠️\n\nVocê tem certeza absoluta de que deseja excluir permanentemente o candidato:\n"${candidato.full_name}"?\n\nTodos os dados pessoais, respostas de formulários e vínculos de documentos serão removidos em definitivo do banco de dados.\n\nPara confirmar a exclusão permanente, digite EXCLUIR abaixo:`;
+    
+    const confirmacao = prompt(mensagemAviso);
+    if (confirmacao !== 'EXCLUIR') {
+      alert('Operação cancelada. O candidato não foi excluído.');
+      return;
+    }
+
+    try {
+      // 1. Remove os registros de documentos
+      await supabase.from('candidate_documents').delete().eq('candidate_id', candidato.id);
+      // 2. Remove o candidato
+      const { error } = await supabase.from('onboarding_candidates').delete().eq('id', candidato.id);
+      
+      if (error) throw error;
+      alert(`O candidato "${candidato.full_name}" foi excluído com sucesso.`);
+      carregarDados();
+    } catch (err) {
+      alert('Erro ao excluir candidato: ' + err.message);
+    }
+  }
+
+  // EDIÇÃO DE DADOS PELO RH
   function iniciarEdicao(candidato) {
     setCandidatoEditando(candidato);
     setDadosEdicao(candidato.custom_data ? { ...candidato.custom_data } : {
@@ -216,7 +240,6 @@ export default function AdminPage() {
     }
   }
 
-  // CONTATO RÁPIDO WHATSAPP
   function abrirWhatsAppDireto(candidato) {
     const fone = extrairTelefone(candidato);
     if (!fone) {
@@ -228,30 +251,34 @@ export default function AdminPage() {
     window.open(`https://wa.me/${fone}?text=${encodeURIComponent(texto)}`, '_blank');
   }
 
-  // EXPORTAR EXCEL CSV
-  function handleExportarCSV() {
-    const aprovados = candidates.filter(c => c.status === 'Aprovado');
-    if (aprovados.length === 0) {
-      alert('Nenhum candidato aprovado para exportar.');
+  // EXPORTAÇÃO CSV PARA EXCEL (APROVADOS OU TODOS)
+  function handleExportarCSV(somenteAprovados = true) {
+    const listaAlvo = somenteAprovados 
+      ? candidates.filter(c => c.status === 'Aprovado') 
+      : candidates;
+
+    if (listaAlvo.length === 0) {
+      alert(`Nenhum candidato encontrado para exportar (${somenteAprovados ? 'Aprovados' : 'Geral'}).`);
       return;
     }
 
     const colunasDinamicas = new Set();
-    aprovados.forEach(c => {
+    listaAlvo.forEach(c => {
       if (c.custom_data) {
         Object.keys(c.custom_data).forEach(col => colunasDinamicas.add(col));
       }
     });
 
     const listaColunas = Array.from(colunasDinamicas);
-    const cabecalho = ['Nome Completo', 'Status', 'Data de Envio', ...listaColunas];
+    const cabecalho = ['Nome Completo', 'Status', 'Data de Envio', 'Observações / Agendamento', ...listaColunas];
 
-    const linhas = aprovados.map(c => {
+    const linhas = listaAlvo.map(c => {
       const dataCriacao = c.created_at ? new Date(c.created_at).toLocaleDateString('pt-BR') : '';
       const linhaBase = [
         `"${(c.full_name || '').replace(/"/g, '""')}"`,
         `"${(c.status || '').replace(/"/g, '""')}"`,
-        `"${dataCriacao}"`
+        `"${dataCriacao}"`,
+        `"${(c.feedback_reason || '').replace(/"/g, '""')}"`
       ];
 
       const valoresDinamicos = listaColunas.map(col => {
@@ -267,10 +294,104 @@ export default function AdminPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `admissoes_aprovadas_usiban_${new Date().toISOString().slice(0, 10)}.csv`);
+    const tipoNome = somenteAprovados ? 'aprovados' : 'todos';
+    link.setAttribute('download', `admissoes_usiban_${tipoNome}_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  }
+
+  // EXPORTAÇÃO PDF DO RELATÓRIO
+  function handleExportarPDF(somenteAprovados = false) {
+    const listaAlvo = somenteAprovados 
+      ? candidates.filter(c => c.status === 'Aprovado') 
+      : candidates;
+
+    if (listaAlvo.length === 0) {
+      alert('Nenhum candidato encontrado para gerar o PDF.');
+      return;
+    }
+
+    const tituloRelatorio = somenteAprovados ? 'Relatório de Candidatos Aprovados' : 'Relatório Geral de Candidatos';
+    const dataHoje = new Date().toLocaleDateString('pt-BR');
+
+    const janela = window.open('', '_blank');
+    if (!janela) {
+      alert('Por favor, permita a abertura de janelas pop-up para gerar o relatório PDF.');
+      return;
+    }
+
+    const linhasTabela = listaAlvo.map((c, i) => {
+      const dataEnvio = c.created_at ? new Date(c.created_at).toLocaleDateString('pt-BR') : '-';
+      const cpf = c.custom_data?.['CPF'] || '-';
+      const cargo = c.job_title || c.custom_data?.['Cargo Pretendido'] || '-';
+      const depto = c.department || c.custom_data?.['Departamento'] || '-';
+      const tel = c.phone || c.custom_data?.['WhatsApp / Telefone'] || '-';
+
+      return `
+        <tr style="border-bottom: 1px solid #cbd5e1; font-size: 11px;">
+          <td style="padding: 6px 8px; text-align: center;">${i + 1}</td>
+          <td style="padding: 6px 8px; font-weight: bold;">${c.full_name}</td>
+          <td style="padding: 6px 8px;">${cpf}</td>
+          <td style="padding: 6px 8px;">${cargo}</td>
+          <td style="padding: 6px 8px;">${depto}</td>
+          <td style="padding: 6px 8px;">${tel}</td>
+          <td style="padding: 6px 8px; font-weight: bold; color: ${c.status === 'Aprovado' ? '#0c5e31' : c.status?.includes('Rejeitado') ? '#b91c1c' : '#b45309'};">${c.status}</td>
+          <td style="padding: 6px 8px;">${dataEnvio}</td>
+        </tr>
+      `;
+    }).join('');
+
+    janela.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${tituloRelatorio} - USIBAN</title>
+          <style>
+            body { font-family: system-ui, -apple-system, sans-serif; padding: 24px; color: #1e293b; }
+            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0c5e31; padding-bottom: 14px; margin-bottom: 20px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            th { background: #0c5e31; color: #fff; padding: 8px; font-size: 11px; text-align: left; }
+            @media print {
+              button { display: none !important; }
+              body { padding: 0; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <h2 style="margin: 0; color: #0c5e31;">Açúcar e Álcool Bandeirantes S.A. • USIBAN</h2>
+              <span style="font-size: 13px; color: #64748b;">${tituloRelatorio} • Emissão: ${dataHoje}</span>
+            </div>
+            <button onclick="window.print()" style="padding: 8px 16px; background: #0c5e31; color: #fff; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">
+              Imprimir / Salvar como PDF
+            </button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 25px; text-align: center;">#</th>
+                <th>Nome do Candidato</th>
+                <th>CPF</th>
+                <th>Cargo</th>
+                <th>Departamento</th>
+                <th>Contato</th>
+                <th>Status</th>
+                <th>Data</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${linhasTabela}
+            </tbody>
+          </table>
+          <footer style="margin-top: 24px; font-size: 11px; color: #94a3b8; text-align: right;">
+            Total de registros: ${listaAlvo.length} | Sistema de Admissão RH - Usiban
+          </footer>
+        </body>
+      </html>
+    `);
+    janela.document.close();
   }
 
   // REORDENAÇÃO DE CAMPOS
@@ -502,7 +623,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Abas */}
+      {/* Abas de Navegação */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
         <button 
           onClick={() => setAbaAtiva('candidatos')}
@@ -569,6 +690,7 @@ export default function AdminPage() {
       {/* ABA 1: CANDIDATOS */}
       {abaAtiva === 'candidatos' && (
         <div>
+          {/* Barra de Filtros e Exportações */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '18px' }}>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               {['Todos', 'Pendentes', 'Aprovados', 'Com Pendência'].map(status => (
@@ -591,25 +713,30 @@ export default function AdminPage() {
               ))}
             </div>
 
-            <button
-              onClick={handleExportarCSV}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '7px 14px',
-                background: '#0c5e31',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontWeight: 'bold',
-                fontSize: '13px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-              }}
-            >
-              📥 Exportar Aprovados (Excel)
-            </button>
+            {/* Grupo de Botões de Exportação */}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => handleExportarCSV(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 12px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}
+                title="Exportar apenas candidatos aprovados"
+              >
+                📊 Excel (Aprovados)
+              </button>
+              <button
+                onClick={() => handleExportarCSV(false)}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 12px', background: '#003366', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}
+                title="Exportar todos os candidatos em planilha"
+              >
+                📥 Excel (Todos)
+              </button>
+              <button
+                onClick={() => handleExportarPDF(false)}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 12px', background: '#475569', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}
+                title="Gerar relatório pronto para impressão e salvamento em PDF"
+              >
+                📄 Relatório PDF
+              </button>
+            </div>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -665,9 +792,19 @@ export default function AdminPage() {
                         {/* Rejeitar e Avisar Pendência */}
                         <button 
                           onClick={() => handleRejeitar(c)} 
-                          style={{ padding: '7px 14px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                          style={{ padding: '7px 14px', background: '#d97706', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
                         >
-                          Rejeitar ✕
+                          Pendência ✕
+                        </button>
+
+                        {/* Excluir Definitivamente com Alerta Reforçado */}
+                        <button 
+                          type="button"
+                          onClick={() => handleExcluirCandidato(c)} 
+                          style={{ padding: '7px 12px', background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}
+                          title="Excluir este candidato permanentemente"
+                        >
+                          🗑️ Excluir
                         </button>
                       </div>
                     </div>
