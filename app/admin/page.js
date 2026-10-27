@@ -163,121 +163,7 @@ export default function AdminPage() {
     setLoginSenha('');
   }
 
-  // --- MÓDULO DP: PROCESSAMENTO DO PDF DO SENIOR HCM ---
-  async function handleUploadSeniorHCM(e) {
-    e.preventDefault();
-    if (!arquivoSenior) {
-      alert('Por favor, selecione o arquivo PDF consolidado exportado pelo Senior HCM.');
-      return;
-    }
-
-    setProcessandoPdf(true);
-    setStatusProcessamento('Enviando arquivo e processando páginas...');
-
-    try {
-      const formData = new FormData();
-      formData.append('file', arquivoSenior);
-      formData.append('competence', competenciaSelecionada);
-
-      const resposta = await fetch('/api/dp/split-payrolls', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const resultado = await resposta.json();
-
-      if (resultado.success) {
-        setStatusProcessamento(`Processamento concluído! ${resultado.processedCount} de ${resultado.totalPages} páginas separadas com sucesso.`);
-        setArquivoSenior(null);
-        // Reseta o input file
-        const inputFile = document.getElementById('input-folha-senior');
-        if (inputFile) inputFile.value = '';
-        carregarDados();
-      } else {
-        setStatusProcessamento(`Erro ao processar: ${resultado.error}`);
-        alert('Erro: ' + resultado.error);
-      }
-    } catch (err) {
-      setStatusProcessamento('Falha na comunicação com a API de fatiamento.');
-      alert('Falha na requisição: ' + err.message);
-    }
-
-    setProcessandoPdf(false);
-  }
-
-  // DISPARAR WHATSAPP DO HOLERITE
-  async function handleDispararHoleriteWhatsApp(holerite) {
-    // Tenta encontrar o número do colaborador pelo CPF nos cadastros
-    const cpfLimpo = (holerite.cpf || '').replace(/\D/g, '');
-    let fone = '';
-    
-    const candidatoCorrespondente = candidates.find(c => {
-      const cCpf = (c.custom_data?.['CPF'] || '').replace(/\D/g, '');
-      return cCpf && cCpf === cpfLimpo;
-    });
-
-    if (candidatoCorrespondente) {
-      fone = candidatoCorrespondente.phone || candidatoCorrespondente.custom_data?.['WhatsApp / Telefone'] || '';
-    }
-
-    fone = (fone || '').replace(/\D/g, '');
-    if (!fone || fone.length < 10) {
-      const foneInformado = prompt(`Informe o WhatsApp com DDD para o colaborador (CPF: ${holerite.cpf}):`);
-      if (!foneInformado) return;
-      fone = foneInformado.replace(/\D/g, '');
-    }
-
-    if (!fone.startsWith('55') && fone.length <= 11) {
-      fone = '55' + fone;
-    }
-
-    const primeiroNome = (holerite.employee_name || 'Colaborador').split(' ')[0];
-    const mensagem = `Olá ${primeiroNome}, o seu Demonstrativo de Pagamento referente à competência *${holerite.competence}* da Usina Bandeirante (USIBAN) já está disponível.\n\n📄 *Acesse o seu documento oficial no link abaixo:*\n${holerite.file_url}\n\nEm caso de dúvidas sobre a folha, entre em contato com o Departamento Pessoal.`;
-
-    // Atualiza status no banco
-    await supabase
-      .from('employee_payrolls')
-      .update({ status: 'Enviado', channel: 'WhatsApp' })
-      .eq('id', holerite.id);
-
-    carregarDados();
-    window.open(`https://wa.me/${fone}?text=${encodeURIComponent(mensagem)}`, '_blank');
-  }
-
-  async function handleExcluirHolerite(id) {
-    if (!confirm('Deseja remover o registro deste holerite?')) return;
-    await supabase.from('employee_payrolls').delete().eq('id', id);
-    carregarDados();
-  }
-
-  // --- GESTÃO DE USUÁRIOS (ADMIN) ---
-  async function handleCriarUsuario(e) {
-    e.preventDefault();
-    if (!novoUserNome || !novoUserEmail || !novoUserSenha) return;
-
-    const { error } = await supabase.from('system_users').insert([
-      {
-        name: novoUserNome.trim(),
-        email: novoUserEmail.trim().toLowerCase(),
-        password: novoUserSenha,
-        role: novoUserRole,
-        is_active: true
-      }
-    ]);
-
-    if (!error) {
-      alert(`Usuário ${novoUserNome} criado com sucesso!`);
-      setNovoUserNome('');
-      setNovoUserEmail('');
-      setNovoUserSenha('');
-      setNovoUserRole('recrutamento');
-      carregarDados();
-    } else {
-      alert('Erro ao criar usuário: ' + error.message);
-    }
-  }
-
-  // --- FUNÇÕES R&S ---
+  // --- FUNÇÕES R&S: APROVAÇÃO, PENDÊNCIA E EXCLUSÃO ---
   function extrairTelefone(candidato) {
     let fone = candidato.phone || '';
     if (!fone && candidato.custom_data) {
@@ -345,6 +231,177 @@ export default function AdminPage() {
     carregarDados();
   }
 
+  function iniciarEdicao(candidato) {
+    setCandidatoEditando(candidato);
+    setDadosEdicao(candidato.custom_data ? { ...candidato.custom_data } : {
+      'Nome Completo': candidato.full_name,
+      'Cargo Pretendido': candidato.job_title,
+      'Departamento': candidato.department,
+      'E-mail': candidato.email,
+      'WhatsApp / Telefone': candidato.phone
+    });
+  }
+
+  async function salvarEdicaoRH(e) {
+    e.preventDefault();
+    if (!candidatoEditando) return;
+    const novoNome = dadosEdicao['Nome Completo'] || candidatoEditando.full_name;
+    const novoEmail = dadosEdicao['E-mail'] || candidatoEditando.email;
+    const novoTelefone = dadosEdicao['WhatsApp / Telefone'] || dadosEdicao['Telefone'] || candidatoEditando.phone;
+    const novoCargo = dadosEdicao['Cargo Pretendido'] || candidatoEditando.job_title;
+    const novoDepto = dadosEdicao['Departamento'] || candidatoEditando.department;
+
+    const { error } = await supabase.from('onboarding_candidates').update({
+      full_name: novoNome,
+      email: novoEmail,
+      phone: novoTelefone,
+      job_title: novoCargo,
+      department: novoDepto,
+      custom_data: dadosEdicao
+    }).eq('id', candidatoEditando.id);
+
+    if (!error) {
+      alert('Dados cadastrais atualizados com sucesso!');
+      setCandidatoEditando(null);
+      carregarDados();
+    }
+  }
+
+  // --- CONVITES WHATSAPP ---
+  async function handleAdicionarConviteIndividual(e) {
+    e.preventDefault();
+    if (!conviteNome || !conviteTelefone) return;
+    const telefoneLimpo = conviteTelefone.replace(/\D/g, '');
+    const { error } = await supabase.from('admission_invites').insert([
+      { candidate_name: conviteNome.trim(), phone: telefoneLimpo, job_title: conviteCargo.trim(), status: 'Pendente' }
+    ]);
+    if (!error) {
+      setConviteNome('');
+      setConviteTelefone('');
+      setConviteCargo('');
+      carregarDados();
+      alert('Convite adicionado!');
+    }
+  }
+
+  async function handleImportarLote(e) {
+    e.preventDefault();
+    if (!listaLote.trim()) return;
+
+    const linhas = listaLote.split('\n');
+    const novosConvites = [];
+    linhas.forEach(linha => {
+      const partes = linha.split(/[,;\t]/);
+      if (partes.length >= 2) {
+        const nome = partes[0].trim();
+        const telefone = partes[1].replace(/\D/g, '');
+        const cargo = partes[2] ? partes[2].trim() : '';
+        if (nome && telefone.length >= 10) {
+          novosConvites.push({ candidate_name: nome, phone: telefone, job_title: cargo, status: 'Pendente' });
+        }
+      }
+    });
+
+    if (novosConvites.length === 0) {
+      alert('Formato inválido. Use: Nome, Telefone (um por linha).');
+      return;
+    }
+
+    const { error } = await supabase.from('admission_invites').insert(novosConvites);
+    if (!error) {
+      setListaLote('');
+      carregarDados();
+      alert(`${novosConvites.length} candidatos importados!`);
+    }
+  }
+
+  async function dispararWhatsAppConvite(convite) {
+    const primeiroNome = convite.candidate_name.split(' ')[0];
+    const mensagem = mensagemModelo.replace('{NOME}', primeiroNome);
+    let fone = convite.phone.replace(/\D/g, '');
+    if (!fone.startsWith('55') && fone.length <= 11) fone = '55' + fone;
+
+    await supabase.from('admission_invites').update({ status: 'Enviado' }).eq('id', convite.id);
+    carregarDados();
+    window.open(`https://wa.me/${fone}?text=${encodeURIComponent(mensagem)}`, '_blank');
+  }
+
+  async function handleExcluirConvite(id) {
+    if (!confirm('Deseja remover este convite?')) return;
+    await supabase.from('admission_invites').delete().eq('id', id);
+    carregarDados();
+  }
+
+  // --- REORDENAÇÃO E GESTÃO DE CAMPOS ---
+  async function handleMoverCampo(index, direcao) {
+    const novoIndex = direcao === 'cima' ? index - 1 : index + 1;
+    if (novoIndex < 0 || novoIndex >= requiredFields.length) return;
+
+    const novaLista = [...requiredFields];
+    const [itemRemovido] = novaLista.splice(index, 1);
+    novaLista.splice(novoIndex, 0, itemRemovido);
+    setRequiredFields(novaLista);
+
+    for (let i = 0; i < novaLista.length; i++) {
+      await supabase
+        .from('required_personal_fields')
+        .update({ display_order: i + 1 })
+        .eq('id', novaLista[i].id);
+    }
+  }
+
+  async function handleAdicionarCampo(e) {
+    e.preventDefault();
+    if (!novoCampoLabel) return;
+    const proximaOrdem = requiredFields.length + 1;
+    const { error } = await supabase.from('required_personal_fields').insert([
+      {
+        label: novoCampoLabel,
+        field_type: novoCampoTipo,
+        placeholder: novoCampoPlaceholder,
+        is_required: novoCampoObrigatorio,
+        validation_rule: novoCampoValidacao,
+        display_order: proximaOrdem,
+        is_active: true
+      }
+    ]);
+    if (!error) {
+      setNovoCampoLabel('');
+      setNovoCampoPlaceholder('');
+      setNovoCampoValidacao('none');
+      carregarDados();
+      alert('Campo adicionado!');
+    }
+  }
+
+  async function handleDesativarCampo(id) {
+    if (!confirm('Deseja desativar este campo?')) return;
+    await supabase.from('required_personal_fields').update({ is_active: false }).eq('id', id);
+    carregarDados();
+  }
+
+  // --- DOCUMENTOS EXIGIDOS ---
+  async function handleAdicionarDoc(e) {
+    e.preventDefault();
+    if (!novoDocTitulo) return;
+    const { error } = await supabase.from('required_documents').insert([
+      { title: novoDocTitulo, description: novoDocDesc, is_required: novoDocObrigatorio, is_active: true }
+    ]);
+    if (!error) {
+      setNovoDocTitulo('');
+      setNovoDocDesc('');
+      carregarDados();
+      alert('Documento adicionado!');
+    }
+  }
+
+  async function handleDesativarDoc(id) {
+    if (!confirm('Deseja desativar este documento?')) return;
+    await supabase.from('required_documents').update({ is_active: false }).eq('id', id);
+    carregarDados();
+  }
+
+  // --- EXPORTAÇÕES ---
   function handleExportarCSV(somenteAprovados = true) {
     const listaAlvo = somenteAprovados ? candidates.filter(c => c.status === 'Aprovado') : candidates;
     if (listaAlvo.length === 0) {
@@ -378,6 +435,171 @@ export default function AdminPage() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  }
+
+  function handleExportarPDF(somenteAprovados = false) {
+    const listaAlvo = somenteAprovados ? candidates.filter(c => c.status === 'Aprovado') : candidates;
+    if (listaAlvo.length === 0) {
+      alert('Nenhum candidato encontrado.');
+      return;
+    }
+    const janela = window.open('', '_blank');
+    if (!janela) return;
+
+    const linhasTabela = listaAlvo.map((c, i) => `
+      <tr style="border-bottom: 1px solid #cbd5e1; font-size: 11px;">
+        <td style="padding: 6px; text-align: center;">${i + 1}</td>
+        <td style="padding: 6px; font-weight: bold;">${c.full_name}</td>
+        <td style="padding: 6px;">${c.custom_data?.['CPF'] || '-'}</td>
+        <td style="padding: 6px;">${c.job_title || '-'}</td>
+        <td style="padding: 6px;">${c.department || '-'}</td>
+        <td style="padding: 6px;">${c.phone || '-'}</td>
+        <td style="padding: 6px; font-weight: bold;">${c.status}</td>
+      </tr>
+    `).join('');
+
+    janela.document.write(`
+      <html>
+        <head><title>Relatório Usiban</title></head>
+        <body style="font-family: sans-serif; padding: 24px;">
+          <h2 style="color: #0c5e31; margin-bottom: 4px;">Usina Bandeirante (USIBAN)</h2>
+          <p style="color: #64748b; font-size: 12px; margin-top: 0;">Relatório de Candidatos e Admissões • Emissão: ${new Date().toLocaleDateString('pt-BR')}</p>
+          <table style="width: 100%; border-collapse: collapse; margin-top: 16px;">
+            <thead>
+              <tr style="background: #0c5e31; color: #fff; font-size: 11px; text-align: left;">
+                <th style="padding: 6px;">#</th><th>Nome</th><th>CPF</th><th>Cargo</th><th>Departamento</th><th>Contato</th><th>Status</th>
+              </tr>
+            </thead>
+            <tbody>${linhasTabela}</tbody>
+          </table>
+          <script>window.print();</script>
+        </body>
+      </html>
+    `);
+    janela.document.close();
+  }
+
+  // --- MÓDULO DP: PROCESSAMENTO DO SENIOR HCM ---
+  async function handleUploadSeniorHCM(e) {
+    e.preventDefault();
+    if (!arquivoSenior) {
+      alert('Selecione o arquivo PDF consolidado exportado pelo Senior HCM.');
+      return;
+    }
+
+    setProcessandoPdf(true);
+    setStatusProcessamento('Enviando arquivo e processando páginas...');
+
+    try {
+      const formData = new FormData();
+      formData.append('file', arquivoSenior);
+      formData.append('competence', competenciaSelecionada);
+
+      const resposta = await fetch('/api/dp/split-payrolls', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const resultado = await resposta.json();
+
+      if (resultado.success) {
+        setStatusProcessamento(`Sucesso! ${resultado.processedCount} de ${resultado.totalPages} páginas separadas e registradas.`);
+        setArquivoSenior(null);
+        const inputFile = document.getElementById('input-folha-senior');
+        if (inputFile) inputFile.value = '';
+        carregarDados();
+      } else {
+        setStatusProcessamento(`Erro: ${resultado.error}`);
+        alert('Erro: ' + resultado.error);
+      }
+    } catch (err) {
+      setStatusProcessamento('Falha na comunicação com a API de fatiamento.');
+      alert('Falha na requisição: ' + err.message);
+    }
+
+    setProcessandoPdf(false);
+  }
+
+  async function handleDispararHoleriteWhatsApp(holerite) {
+    const cpfLimpo = (holerite.cpf || '').replace(/\D/g, '');
+    let fone = '';
+    
+    const candidatoCorrespondente = candidates.find(c => {
+      const cCpf = (c.custom_data?.['CPF'] || '').replace(/\D/g, '');
+      return cCpf && cCpf === cpfLimpo;
+    });
+
+    if (candidatoCorrespondente) {
+      fone = candidatoCorrespondente.phone || candidatoCorrespondente.custom_data?.['WhatsApp / Telefone'] || '';
+    }
+
+    fone = (fone || '').replace(/\D/g, '');
+    if (!fone || fone.length < 10) {
+      const foneInformado = prompt(`Informe o WhatsApp com DDD para o colaborador (CPF: ${holerite.cpf}):`);
+      if (!foneInformado) return;
+      fone = foneInformado.replace(/\D/g, '');
+    }
+
+    if (!fone.startsWith('55') && fone.length <= 11) fone = '55' + fone;
+
+    const primeiroNome = (holerite.employee_name || 'Colaborador').split(' ')[0];
+    const mensagem = `Olá ${primeiroNome}, o seu Demonstrativo de Pagamento referente à competência *${holerite.competence}* da Usina Bandeirante (USIBAN) já está disponível.\n\n📄 *Acesse o seu documento oficial no link abaixo:*\n${holerite.file_url}\n\nEm caso de dúvidas sobre a folha, entre em contato com o Departamento Pessoal.`;
+
+    await supabase
+      .from('employee_payrolls')
+      .update({ status: 'Enviado', channel: 'WhatsApp' })
+      .eq('id', holerite.id);
+
+    carregarDados();
+    window.open(`https://wa.me/${fone}?text=${encodeURIComponent(mensagem)}`, '_blank');
+  }
+
+  async function handleExcluirHolerite(id) {
+    if (!confirm('Deseja remover o registro deste holerite?')) return;
+    await supabase.from('employee_payrolls').delete().eq('id', id);
+    carregarDados();
+  }
+
+  // --- GESTÃO DE USUÁRIOS (ADMIN) ---
+  async function handleCriarUsuario(e) {
+    e.preventDefault();
+    if (!novoUserNome || !novoUserEmail || !novoUserSenha) return;
+
+    const { error } = await supabase.from('system_users').insert([
+      {
+        name: novoUserNome.trim(),
+        email: novoUserEmail.trim().toLowerCase(),
+        password: novoUserSenha,
+        role: novoUserRole,
+        is_active: true
+      }
+    ]);
+
+    if (!error) {
+      alert(`Usuário ${novoUserNome} criado com sucesso!`);
+      setNovoUserNome('');
+      setNovoUserEmail('');
+      setNovoUserSenha('');
+      setNovoUserRole('recrutamento');
+      carregarDados();
+    } else {
+      alert('Erro ao criar usuário: ' + error.message);
+    }
+  }
+
+  async function handleAlternarStatusUsuario(id, statusAtual) {
+    await supabase.from('system_users').update({ is_active: !statusAtual }).eq('id', id);
+    carregarDados();
+  }
+
+  async function handleExcluirUsuario(user) {
+    if (user.email === 'admin@usiban.com.br') {
+      alert('O administrador master não pode ser excluído.');
+      return;
+    }
+    if (!confirm(`Deseja remover permanentemente o usuário ${user.name}?`)) return;
+    await supabase.from('system_users').delete().eq('id', user.id);
+    carregarDados();
   }
 
   // --- TELA DE LOGIN ---
@@ -441,7 +663,7 @@ export default function AdminPage() {
   return (
     <main style={{ padding: '24px 16px', fontFamily: 'system-ui, sans-serif', maxWidth: '1100px', margin: '0 auto', color: '#1e293b' }}>
       
-      {/* Topo */}
+      {/* Topo Institucional */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #e2e8f0', paddingBottom: '16px', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           <img 
@@ -469,7 +691,7 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* Navegação de Módulos */}
+      {/* Navegação de Módulos Principais */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #cbd5e1', paddingBottom: '10px', flexWrap: 'wrap' }}>
         {usuarioLogado.role === 'admin' && (
           <button 
@@ -531,9 +753,10 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* --- MÓDULO 1: RECRUTAMENTO & SELEÇÃO --- */}
+      {/* --- MÓDULO 1: RECRUTAMENTO & SELEÇÃO (R&S) --- */}
       {moduloAtivo === 'recrutamento' && (
         <div>
+          {/* Sub-abas de R&S */}
           <div style={{ display: 'flex', gap: '8px', marginBottom: '18px', flexWrap: 'wrap' }}>
             <button onClick={() => setAbaRS('candidatos')} style={{ padding: '8px 14px', border: 'none', borderBottom: abaRS === 'candidatos' ? '3px solid #0c5e31' : 'none', background: abaRS === 'candidatos' ? '#e8f5e9' : '#f8fafc', color: abaRS === 'candidatos' ? '#0c5e31' : '#64748b', fontWeight: 'bold', cursor: 'pointer', borderRadius: '4px' }}>
               👥 Candidatos & Validação
@@ -549,6 +772,33 @@ export default function AdminPage() {
             </button>
           </div>
 
+          {/* Modal Edição do RH */}
+          {candidatoEditando && (
+            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
+              <div style={{ background: '#fff', padding: '24px', borderRadius: '10px', width: '100%', maxWidth: '580px', maxHeight: '90vh', overflowY: 'auto' }}>
+                <h3 style={{ margin: '0 0 12px 0', color: '#0c5e31' }}>✏️ Corrigir Dados: {candidatoEditando.full_name}</h3>
+                <form onSubmit={salvarEdicaoRH} style={{ display: 'grid', gap: '10px' }}>
+                  {Object.entries(dadosEdicao).map(([campo, valor]) => (
+                    <div key={campo}>
+                      <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 'bold', marginBottom: '4px' }}>{campo}</label>
+                      <input
+                        type="text"
+                        value={valor || ''}
+                        onChange={(e) => setDadosEdicao({ ...dadosEdicao, [campo]: e.target.value })}
+                        style={{ width: '100%', boxSizing: 'border-box', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                      />
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' }}>
+                    <button type="button" onClick={() => setCandidatoEditando(null)} style={{ padding: '8px 14px', background: '#e2e8f0', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Cancelar</button>
+                    <button type="submit" style={{ padding: '8px 16px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Salvar</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* SUB-ABA 1: CANDIDATOS */}
           {abaRS === 'candidatos' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '18px' }}>
@@ -562,6 +812,7 @@ export default function AdminPage() {
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <button onClick={() => handleExportarCSV(true)} style={{ padding: '7px 12px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}>📊 Excel (Aprovados)</button>
                   <button onClick={() => handleExportarCSV(false)} style={{ padding: '7px 12px', background: '#003366', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}>📥 Excel (Todos)</button>
+                  <button onClick={() => handleExportarPDF(false)} style={{ padding: '7px 12px', background: '#475569', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}>📄 Relatório PDF</button>
                 </div>
               </div>
 
@@ -581,6 +832,7 @@ export default function AdminPage() {
                             <span style={{ backgroundColor: badge.bg, color: badge.color, padding: '3px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold' }}>{c.status}</span>
                           </div>
                           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <button onClick={() => iniciarEdicao(c)} style={{ padding: '6px 10px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>✏️ Editar</button>
                             <button onClick={() => { const fone = extrairTelefone(c); if (fone) window.open(`https://wa.me/${fone}`, '_blank'); else alert('Sem telefone.'); }} style={{ padding: '6px 10px', background: '#25D366', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>📱 WhatsApp</button>
                             <button onClick={() => handleAprovar(c)} style={{ padding: '6px 12px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}>Aprovar ✓</button>
                             <button onClick={() => handleRejeitar(c)} style={{ padding: '6px 12px', background: '#d97706', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}>Pendência ✕</button>
@@ -588,16 +840,310 @@ export default function AdminPage() {
                           </div>
                         </div>
 
+                        {/* Dados cadastrados em linha única */}
                         <div style={{ padding: '14px', background: '#f8faf9', borderRadius: '6px', fontSize: '13.5px', border: '1px solid #e2e8f0' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {Object.entries(dadosExtras).map(([k, v]) => (
-                              <div key={k} style={{ borderBottom: '1px dashed #e2e8f0', paddingBottom: '6px' }}><b>{k}:</b> {String(v)}</div>
+                            {Object.entries(dadosExtras).length > 0 ? (
+                              Object.entries(dadosExtras).map(([k, v]) => (
+                                <div key={k} style={{ borderBottom: '1px dashed #e2e8f0', paddingBottom: '6px' }}><b>{k}:</b> {String(v)}</div>
+                              ))
+                            ) : (
+                              <div><b>Cargo:</b> {c.job_title} | <b>Depto:</b> {c.department}</div>
+                            )}
+                          </div>
+                        </div>
+
+                        {c.feedback_reason && (
+                          <div style={{ marginTop: '10px', padding: '10px', background: c.status === 'Aprovado' ? '#e8f5e9' : '#fef2f2', borderLeft: `4px solid ${c.status === 'Aprovado' ? '#0c5e31' : '#ef4444'}`, fontSize: '13px' }}>
+                            <b>{c.status === 'Aprovado' ? 'Agendamentos:' : 'Motivo da Pendência:'}</b> {c.feedback_reason}
+                          </div>
+                        )}
+
+                        <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px dashed #cbd5e1' }}>
+                          <span style={{ fontSize: '12.5px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>Documentos Enviados ({docsEnviados.length}):</span>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                            {docsEnviados.map(d => (
+                              <a key={d.id} href={d.document_url} target="_blank" rel="noopener noreferrer" style={{ padding: '4px 10px', background: '#e8f5e9', border: '1px solid #c8e6c9', color: '#0c5e31', textDecoration: 'none', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold' }}>
+                                📄 {d.document_name}
+                              </a>
                             ))}
                           </div>
                         </div>
                       </div>
                     );
                   })}
+              </div>
+            </div>
+          )}
+
+          {/* SUB-ABA 2: CONVITES WHATSAPP */}
+          {abaRS === 'convites' && (
+            <div>
+              <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
+                <strong style={{ color: '#0c5e31', fontSize: '15px', display: 'block', marginBottom: '6px' }}>💬 Mensagem Padrão do WhatsApp</strong>
+                <span style={{ fontSize: '13px', color: '#64748b', display: 'block', marginBottom: '8px' }}>
+                  Use <code>{'{NOME}'}</code> onde deseja que apareça o primeiro nome do candidato:
+                </span>
+                <textarea rows={3} value={mensagemModelo} onChange={e => setMensagemModelo(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13.5px', fontFamily: 'inherit' }} />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+                <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <h3 style={{ marginTop: 0, color: '#0c5e31', fontSize: '16px' }}>+ Convidar Candidato Avulso</h3>
+                  <form onSubmit={handleAdicionarConviteIndividual} style={{ display: 'grid', gap: '10px' }}>
+                    <input placeholder="Nome do Candidato" value={conviteNome} onChange={e => setConviteNome(e.target.value)} required style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+                    <input placeholder="WhatsApp com DDD (Ex: 43999998888)" value={conviteTelefone} onChange={e => setConviteTelefone(e.target.value)} required style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+                    <input placeholder="Cargo Pretendido (Opcional)" value={conviteCargo} onChange={e => setConviteCargo(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+                    <button type="submit" style={{ padding: '10px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Adicionar à Fila</button>
+                  </form>
+                </div>
+
+                <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <h3 style={{ marginTop: 0, color: '#003366', fontSize: '16px' }}>📋 Importar Lista em Lote</h3>
+                  <p style={{ color: '#64748b', fontSize: '12px', margin: '0 0 8px 0' }}>
+                    Cole os candidatos (um por linha): <b>Nome, Telefone</b> ou <b>Nome, Telefone, Cargo</b>
+                  </p>
+                  <form onSubmit={handleImportarLote} style={{ display: 'grid', gap: '10px' }}>
+                    <textarea rows={4} placeholder="Exemplo:&#10;João da Silva, 43999991111, Operador&#10;Maria Santos, 43988882222, RH" value={listaLote} onChange={e => setListaLote(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }} />
+                    <button type="submit" style={{ padding: '10px', background: '#003366', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Importar Lista</button>
+                  </form>
+                </div>
+              </div>
+
+              <h3 style={{ color: '#0c5e31', margin: '0 0 12px 0' }}>Fila de Convites ({invites.length})</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {invites.length === 0 ? (
+                  <p style={{ color: '#64748b' }}>Nenhum convite na fila.</p>
+                ) : (
+                  invites.map(inv => {
+                    const enviado = inv.status === 'Enviado';
+                    return (
+                      <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', flexWrap: 'wrap', gap: '10px' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <strong style={{ fontSize: '15px' }}>{inv.candidate_name}</strong>
+                            <span style={{ fontSize: '11px', fontWeight: 'bold', padding: '2px 8px', borderRadius: '10px', background: enviado ? '#e8f5e9' : '#fef3c7', color: enviado ? '#0c5e31' : '#b45309' }}>
+                              {inv.status}
+                            </span>
+                          </div>
+                          <span style={{ fontSize: '13px', color: '#64748b' }}>
+                            WhatsApp: {inv.phone} {inv.job_title ? `| Cargo: ${inv.job_title}` : ''}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <button
+                            onClick={() => dispararWhatsAppConvite(inv)}
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', background: '#25D366', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                          >
+                            <span style={{ fontSize: '16px' }}>📱</span>
+                            {enviado ? 'Reenviar WhatsApp' : 'Enviar WhatsApp'}
+                          </button>
+                          <button
+                            onClick={() => handleExcluirConvite(inv.id)}
+                            style={{ padding: '8px 10px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                          >
+                            Excluir
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* SUB-ABA 3: CAMPOS PESSOAIS */}
+          {abaRS === 'campos' && (
+            <div>
+              <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
+                <h3 style={{ marginTop: 0, color: '#0c5e31' }}>+ Cadastrar Novo Campo com Validação</h3>
+                <p style={{ color: '#64748b', fontSize: '13px' }}>Defina a pergunta e a regra de formatação/validação que o formulário executará automaticamente.</p>
+
+                <form onSubmit={handleAdicionarCampo} style={{ display: 'grid', gap: '12px', maxWidth: '650px' }}>
+                  <input 
+                    placeholder="Título do Campo (Ex: Nome da Mãe, CPF, WhatsApp, Estado Civil)"
+                    value={novoCampoLabel}
+                    onChange={e => setNovoCampoLabel(e.target.value)}
+                    required
+                    style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                  />
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>Tipo de Entrada</label>
+                      <select 
+                        value={novoCampoTipo} 
+                        onChange={e => setNovoCampoTipo(e.target.value)}
+                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff' }}
+                      >
+                        <option value="text">Texto Simples</option>
+                        <option value="date">Data</option>
+                        <option value="tel">Telefone</option>
+                        <option value="email">E-mail</option>
+                        <option value="number">Número</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px', color: '#475569' }}>Regra de Validação & Máscara</label>
+                      <select 
+                        value={novoCampoValidacao} 
+                        onChange={e => setNovoCampoValidacao(e.target.value)}
+                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', fontWeight: 'bold', color: '#0c5e31' }}
+                      >
+                        <option value="none">Nenhuma (Livre)</option>
+                        <option value="fullname">Nome Completo (Nome + Sobrenome e Caixa Alta)</option>
+                        <option value="cpf">CPF (Máscara + Validador Oficial)</option>
+                        <option value="phone">WhatsApp / Celular (Máscara 9 Dígitos)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <input 
+                    placeholder="Exemplo visual no campo (Placeholder)"
+                    value={novoCampoPlaceholder}
+                    onChange={e => setNovoCampoPlaceholder(e.target.value)}
+                    style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                  />
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: 'pointer' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={novoCampoObrigatorio}
+                      onChange={e => setNovoCampoObrigatorio(e.target.checked)}
+                    />
+                    Preenchimento obrigatório para o candidato
+                  </label>
+
+                  <button 
+                    type="submit"
+                    style={{ padding: '10px 18px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', width: 'fit-content' }}
+                  >
+                    Adicionar Campo ao Formulário
+                  </button>
+                </form>
+              </div>
+
+              <h3 style={{ color: '#0c5e31' }}>Campos Ativos no Formulário (Ordem de Exibição)</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {requiredFields.map((campo, index) => (
+                  <div key={campo.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ background: '#0c5e31', color: '#fff', width: '24px', height: '24px', borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 'bold' }}>
+                        {index + 1}
+                      </span>
+                      <div>
+                        <strong style={{ fontSize: '15px' }}>{campo.label}</strong>
+                        <span style={{ marginLeft: '8px', background: '#e2e8f0', color: '#475569', fontSize: '11px', padding: '2px 6px', borderRadius: '4px' }}>
+                          Tipo: {campo.field_type}
+                        </span>
+                        {campo.validation_rule && campo.validation_rule !== 'none' && (
+                          <span style={{ marginLeft: '6px', background: '#e8f5e9', color: '#0c5e31', fontSize: '11px', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                            Validação: {campo.validation_rule === 'fullname' ? 'Nome Completo' : campo.validation_rule === 'cpf' ? 'CPF Válido' : 'Celular 9 Dígitos'}
+                          </span>
+                        )}
+                        {campo.is_required && (
+                          <span style={{ marginLeft: '6px', background: '#fef2f2', color: '#b91c1c', fontSize: '11px', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                            Obrigatório
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <button 
+                        type="button"
+                        disabled={index === 0}
+                        onClick={() => handleMoverCampo(index, 'cima')}
+                        style={{ padding: '6px 10px', background: index === 0 ? '#e2e8f0' : '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '4px', cursor: index === 0 ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                        title="Mover para cima"
+                      >
+                        ▲
+                      </button>
+                      <button 
+                        type="button"
+                        disabled={index === requiredFields.length - 1}
+                        onClick={() => handleMoverCampo(index, 'baixo')}
+                        style={{ padding: '6px 10px', background: index === requiredFields.length - 1 ? '#e2e8f0' : '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '4px', cursor: index === requiredFields.length - 1 ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}
+                        title="Mover para baixo"
+                      >
+                        ▼
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => handleDesativarCampo(campo.id)}
+                        style={{ padding: '6px 10px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', marginLeft: '6px' }}
+                      >
+                        Desativar
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* SUB-ABA 4: DOCUMENTOS EXIGIDOS */}
+          {abaRS === 'documentos' && (
+            <div>
+              <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
+                <h3 style={{ marginTop: 0, color: '#0c5e31' }}>+ Cadastrar Novo Documento Exigido</h3>
+                <p style={{ color: '#64748b', fontSize: '13px' }}>Ao cadastrar um documento aqui, o campo de anexo aparecerá para os candidatos.</p>
+
+                <form onSubmit={handleAdicionarDoc} style={{ display: 'grid', gap: '12px', maxWidth: '600px' }}>
+                  <input 
+                    placeholder="Nome do Documento (Ex: Título de Eleitor, Certidão de Casamento)"
+                    value={novoDocTitulo}
+                    onChange={e => setNovoDocTitulo(e.target.value)}
+                    required
+                    style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                  />
+                  <input 
+                    placeholder="Instruções para o candidato (Ex: Frente e verso nítidos)"
+                    value={novoDocDesc}
+                    onChange={e => setNovoDocDesc(e.target.value)}
+                    style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                  />
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: 'pointer' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={novoDocObrigatorio}
+                      onChange={e => setNovoDocObrigatorio(e.target.checked)}
+                    />
+                    Envio obrigatório para o candidato
+                  </label>
+                  <button 
+                    type="submit"
+                    style={{ padding: '10px 18px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', width: 'fit-content' }}
+                  >
+                    Salvar Exigência
+                  </button>
+                </form>
+              </div>
+
+              <h3 style={{ color: '#0c5e31' }}>Documentos Atualmente Exigidos</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {requiredDocs.map(doc => (
+                  <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                    <div>
+                      <strong style={{ fontSize: '15px' }}>{doc.title}</strong>
+                      {doc.is_required && (
+                        <span style={{ marginLeft: '8px', background: '#fef2f2', color: '#b91c1c', fontSize: '11px', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                          Obrigatório
+                        </span>
+                      )}
+                      {doc.description && <p style={{ margin: '4px 0 0 0', color: '#64748b', fontSize: '13px' }}>{doc.description}</p>}
+                    </div>
+                    <button 
+                      onClick={() => handleDesativarDoc(doc.id)}
+                      style={{ padding: '6px 10px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                    >
+                      Desativar
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -761,18 +1307,101 @@ export default function AdminPage() {
       {moduloAtivo === 'usuarios' && usuarioLogado.role === 'admin' && (
         <div>
           <div style={{ background: '#fff', padding: '22px', borderRadius: '10px', border: '1px solid #cbd5e1', marginBottom: '24px' }}>
-            <h3 style={{ marginTop: 0, color: '#334155' }}>+ Cadastrar Operador</h3>
+            <h3 style={{ marginTop: 0, color: '#334155' }}>+ Cadastrar Novo Operador do Sistema</h3>
+            <p style={{ fontSize: '13px', color: '#64748b', marginTop: 0 }}>
+              Crie contas com permissões isoladas para cada equipe (Recrutamento ou DP):
+            </p>
+
             <form onSubmit={handleCriarUsuario} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', alignItems: 'end' }}>
-              <input placeholder="Nome Completo" value={novoUserNome} onChange={e => setNovoUserNome(e.target.value)} required style={{ padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-              <input type="email" placeholder="E-mail Corporativo" value={novoUserEmail} onChange={e => setNovoUserEmail(e.target.value)} required style={{ padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-              <input type="password" placeholder="Senha" value={novoUserSenha} onChange={e => setNovoUserSenha(e.target.value)} required style={{ padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-              <select value={novoUserRole} onChange={e => setNovoUserRole(e.target.value)} style={{ padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', fontWeight: 'bold' }}>
-                <option value="recrutamento">🟢 Operador R&S</option>
-                <option value="dp">🔵 Operador DP</option>
-                <option value="admin">⚙️ Administrador Geral</option>
-              </select>
-              <button type="submit" style={{ padding: '10px 16px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Cadastrar</button>
+              <div>
+                <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 'bold', marginBottom: '4px' }}>Nome Completo</label>
+                <input 
+                  placeholder="Ex: Ana Paula Silva" 
+                  value={novoUserNome} 
+                  onChange={e => setNovoUserNome(e.target.value)} 
+                  required 
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13.5px' }} 
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 'bold', marginBottom: '4px' }}>E-mail de Acesso</label>
+                <input 
+                  type="email" 
+                  placeholder="ana.silva@usiban.com.br" 
+                  value={novoUserEmail} 
+                  onChange={e => setNovoUserEmail(e.target.value)} 
+                  required 
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13.5px' }} 
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 'bold', marginBottom: '4px' }}>Senha Temporária</label>
+                <input 
+                  type="password" 
+                  placeholder="••••••••" 
+                  value={novoUserSenha} 
+                  onChange={e => setNovoUserSenha(e.target.value)} 
+                  required 
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13.5px' }} 
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 'bold', marginBottom: '4px' }}>Perfil / Permissão</label>
+                <select 
+                  value={novoUserRole} 
+                  onChange={e => setNovoUserRole(e.target.value)}
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', fontSize: '13.5px', fontWeight: 'bold' }}
+                >
+                  <option value="recrutamento">🟢 Operador R&S (Apenas Admissões)</option>
+                  <option value="dp">🔵 Operador DP (Apenas Holerites)</option>
+                  <option value="admin">⚙️ Administrador Geral (Acesso Total)</option>
+                </select>
+              </div>
+
+              <button type="submit" style={{ padding: '10px 16px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', height: '40px' }}>
+                Cadastrar Usuário
+              </button>
             </form>
+          </div>
+
+          <h3 style={{ color: '#0c5e31', marginBottom: '12px' }}>Usuários Cadastrados ({systemUsers.length})</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {systemUsers.map(u => (
+              <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', flexWrap: 'wrap', gap: '10px' }}>
+                <div>
+                  <strong style={{ fontSize: '15px' }}>{u.name}</strong>
+                  <span style={{ fontSize: '12px', color: '#64748b', marginLeft: '8px' }}>({u.email})</span>
+                  <div style={{ marginTop: '4px' }}>
+                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '10px', background: u.role === 'admin' ? '#e8f5e9' : u.role === 'recrutamento' ? '#ecfdf5' : '#e0f2fe', color: u.role === 'admin' ? '#0c5e31' : u.role === 'recrutamento' ? '#047857' : '#0369a1', fontWeight: 'bold' }}>
+                      {u.role === 'admin' ? '⚙️ Administrador Geral' : u.role === 'recrutamento' ? '🟢 Apenas R&S' : '🔵 Apenas DP'}
+                    </span>
+                    <span style={{ fontSize: '11px', marginLeft: '8px', color: u.is_active ? '#0c5e31' : '#b91c1c', fontWeight: 'bold' }}>
+                      {u.is_active ? '● Ativo' : '○ Inativo'}
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button 
+                    onClick={() => handleAlternarStatusUsuario(u.id, u.is_active)}
+                    style={{ padding: '6px 12px', background: u.is_active ? '#fef3c7' : '#e8f5e9', color: u.is_active ? '#b45309' : '#0c5e31', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                  >
+                    {u.is_active ? 'Desativar' : 'Ativar'}
+                  </button>
+                  {u.email !== 'admin@usiban.com.br' && (
+                    <button 
+                      onClick={() => handleExcluirUsuario(u)}
+                      style={{ padding: '6px 10px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
+                    >
+                      Excluir
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
