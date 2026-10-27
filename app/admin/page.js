@@ -833,7 +833,32 @@ export default function AdminPage() {
                           </div>
                           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                             <button onClick={() => iniciarEdicao(c)} style={{ padding: '6px 10px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>✏️ Editar</button>
-                            <button onClick={() => { const fone = extrairTelefone(c); if (fone) window.open(`https://wa.me/${fone}`, '_blank'); else alert('Sem telefone.'); }} style={{ padding: '6px 10px', background: '#25D366', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>📱 WhatsApp</button>
+                            <button onClick={() => {
+                                                    const fone = extrairTelefone(c);
+                                                    if (!fone) {
+                                                      alert('Telefone não informado pelo candidato.');
+                                                      return;
+                                                    }
+                                                    const primeiroNome = (c.full_name || 'Candidato').trim().split(' ')[0];
+                                                    const texto = `Olá ${primeiroNome}, aqui é do setor de Recursos Humanos da Usina Bandeirante (USIBAN).`;
+                                                    window.open(`https://wa.me/${fone}?text=${encodeURIComponent(texto)}`, '_blank');
+                                                  }}
+                                                  style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '4px',
+                                                    padding: '6px 10px',
+                                                    background: '#25D366',
+                                                    color: '#fff',
+                                                    border: 'none',
+                                                    borderRadius: '5px',
+                                                    cursor: 'pointer',
+                                                    fontWeight: 'bold',
+                                                    fontSize: '12px'
+                                                  }}
+                                                >
+                                                  📱 WhatsApp
+                                                </button>
                             <button onClick={() => handleAprovar(c)} style={{ padding: '6px 12px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}>Aprovar ✓</button>
                             <button onClick={() => handleRejeitar(c)} style={{ padding: '6px 12px', background: '#d97706', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}>Pendência ✕</button>
                             <button onClick={() => handleExcluirCandidato(c)} style={{ padding: '6px 10px', background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>🗑️</button>
