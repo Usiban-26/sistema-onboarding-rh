@@ -29,7 +29,7 @@ function validarCompetenciaSenior(texto, competenciaEsperada) {
     if (!temVerbaAdiantamento || !temAno) {
       return {
         valido: false,
-        motivo: `O PDF não contém o evento de "13º Salário Adiantado" referente ao ano ${ano}.`
+        motivo: `O PDF enviado não contém a verba de "13º Salário Adiantado" para o ano de ${ano}.`
       };
     }
     return { valido: true };
@@ -59,32 +59,25 @@ function validarCompetenciaSenior(texto, competenciaEsperada) {
   // CASO 3: Folha Mensal Regular (Ex: "09/2026", "10/2026")
   // -------------------------------------------------------------
   if (competenciaEsperada.includes('/')) {
-    // Rejeita se o holerite for de 13º salário
+    // Bloqueia caso o ficheiro seja de 13º
     if (textoLimpo.includes('13o salario adiantado') || textoLimpo.includes('13o salario integral')) {
       return {
         valido: false,
-        motivo: 'O ficheiro contém valores de 13º Salário, mas selecionou uma competência de folha mensal regular.'
+        motivo: 'O ficheiro contém verbas de 13º Salário, mas selecionou uma competência de folha mensal regular.'
       };
     }
 
     const [mesEsperado, anoEsperado] = competenciaEsperada.split('/');
     const mesNum = parseInt(mesEsperado, 10);
 
-    // Remove todas as datas completas (DD/MM/AAAA) para não confundir com datas de admissão ou de cálculo
-    const textoSemDatasCompletas = textoLimpo.replace(/\b\d{1,2}\s*[\/\.-]\s*\d{1,2}\s*[\/\.-]\s*\d{2,4}\b/g, ' ');
+    // Expressão regular que casa com "09 / 2026", "09/2026", "9/2026" ou "09 - 2026"
+    const regexMesAno = new RegExp(`\\b0?${mesNum}\\s*[/.-]\\s*${anoEsperado}\\b`, 'i');
+    const temCompetencia = regexMesAno.test(textoLimpo);
 
-    // Procura o padrão de competência isolado: "09 / 2026", "09/2026", "9/2026", "09 - 2026"
-    const regexCompetencia = new RegExp(`\\b0?${mesNum}\\s*[/.-]\\s*${anoEsperado}\\b`, 'i');
-    const temCompetenciaValida = regexCompetencia.test(textoSemDatasCompletas);
-
-    if (!temCompetenciaValida) {
-      // Tenta detetar qual o mês/ano isolado que restou no documento para avisar o operador
-      const matchQualquer = textoSemDatasCompletas.match(/\b(0?[1-9]|1[0-3])\s*[/.-]\s*(20\d{2})\b/);
-      const detectado = matchQualquer ? `${matchQualquer[1].padStart(2, '0')}/${matchQualquer[2]}` : 'desconhecida';
-
+    if (!temCompetencia) {
       return {
         valido: false,
-        motivo: `O PDF enviado parece corresponder à competência "${detectado}", mas a competência ativa no painel é "${competenciaEsperada}".`
+        motivo: `O PDF enviado não corresponde à competência "${competenciaEsperada}". Certifique-se de que selecionou a competência correta no seletor ou enviou o relatório correspondente.`
       };
     }
 
@@ -115,7 +108,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'O PDF enviado está vazio.' }, { status: 400 });
     }
 
-    // 1. Validação com o texto da 1ª página
+    // 1. Validação estrita na 1ª página
     const firstPageDoc = await PDFDocument.create();
     const [firstPage] = await firstPageDoc.copyPages(originalPdfDoc, [0]);
     firstPageDoc.addPage(firstPage);
@@ -132,7 +125,7 @@ export async function POST(request) {
     const processados = [];
     const atualizados = [];
 
-    // 2. Fatiamento página por página
+    // 2. Fatiamento e gravação página a página
     for (let i = 0; i < totalPages; i++) {
       const singlePageDoc = await PDFDocument.create();
       const [copiedPage] = await singlePageDoc.copyPages(originalPdfDoc, [i]);
@@ -142,7 +135,7 @@ export async function POST(request) {
       const parsedText = await pdfParse(Buffer.from(singlePdfBytes));
       const pageText = parsedText.text;
 
-      // Extração do CPF (ex: "portador do CPF 074.940.539-21")
+      // Extração de CPF ("portador do CPF 074.940.539-21")
       const cpfMatch = pageText.match(/(?:CPF|cpf)[^\d]*(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/i)
                     || pageText.match(/\d{3}\.\d{3}\.\d{3}-\d{2}/)
                     || pageText.match(/(?:\D|^)(\d{11})(?:\D|$)/);
@@ -153,12 +146,12 @@ export async function POST(request) {
         continue;
       }
 
-      // Extração de Cadastro / Matrícula
+      // Matrícula / Cadastro
       const regMatch = pageText.match(/CADASTRO[^\d]*([\d.]+)/i)
                     || pageText.match(/(?:Matrícula|Cadastro|Empregado):?\s*([\d.]+)/i);
       const matricula = regMatch ? regMatch[1].trim() : null;
 
-      // Extração do Nome do Colaborador
+      // Nome do Colaborador
       let nomeEncontrado = 'Colaborador';
       const nomeMatch = pageText.match(/NOME[^\n\r]*[\r\n]+\s*(?:[\d.]+\s+)?([A-ZÀ-Ú\s]{4,60})/i)
                      || pageText.match(/NOME\s+([A-ZÀ-Ú\s]{4,60})/i);
@@ -167,7 +160,7 @@ export async function POST(request) {
         nomeEncontrado = nomeMatch[1].split(/\s{2,}|\n|\r|DATA/)[0].trim();
       }
 
-      // Prevenção de duplicidade (Upsert)
+      // Prevenção de duplicados (Upsert)
       const { data: existente } = await supabase
         .from('employee_payrolls')
         .select('id')
@@ -226,7 +219,7 @@ export async function POST(request) {
       totalPages,
       processedCount: processados.length,
       updatedCount: atualizados.length,
-      message: `${processados.length} novos recibos importados e ${atualizados.length} atualizados com sucesso.`
+      message: `${processados.length} recibos importados e ${atualizados.length} atualizados com sucesso.`
     });
   } catch (error) {
     console.error('Erro ao processar PDF do Senior HCM:', error);
