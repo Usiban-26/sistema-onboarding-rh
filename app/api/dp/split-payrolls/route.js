@@ -58,13 +58,35 @@ export async function POST(request) {
                     || pageText.match(/(?:Matrícula|Cadastro|Empregado):?\s*([\d.]+)/i);
       const matricula = regMatch ? regMatch[1].trim() : null;
 
-      // 3. Extração do Nome do Colaborador
+      // 3. Extração Precisa do Nome do Colaborador (Padrão Senior HCM)
       let nomeEncontrado = 'Colaborador';
-      const nomeMatch = pageText.match(/NOME[^\n\r]*[\r\n]+\s*(?:[\d.]+\s+)?([A-ZÀ-Ú\s]{4,60})/i)
-                     || pageText.match(/NOME\s+([A-ZÀ-Ú\s]{4,60})/i);
 
-      if (nomeMatch && nomeMatch[1]) {
-        nomeEncontrado = nomeMatch[1].split(/\s{2,}|\n|\r|DATA/)[0].trim();
+      // Padrão 1: Pega texto entre "NOME" e "DATA ADMISSÃO" ou "CARGO"
+      const matchNomeSenior = pageText.match(/NOME\s*[\r\n\s]+(?:[\d.]+\s+)?([A-ZÀ-Ú\s]{3,60}?)(?=\s*(?:DATA\s*ADMISS[AÃ]O|CARGO|LOCAL|\n\r|\r|\n|$))/i)
+                           || pageText.match(/NOME\s+([A-ZÀ-Ú\s]{3,60}?)(?=\s*(?:DATA|CARGO))/i);
+
+      if (matchNomeSenior && matchNomeSenior[1]) {
+        const candidatoNome = matchNomeSenior[1].trim();
+        // Garante que não capturou títulos do cabeçalho
+        if (!candidatoNome.toLowerCase().includes('demonstrativo') && !candidatoNome.toLowerCase().includes('pagamento')) {
+          nomeEncontrado = candidatoNome;
+        }
+      }
+
+      // Padrão 2 (Fallback por linhas): procura linha com o cadastro
+      if (nomeEncontrado === 'Colaborador') {
+        const linhas = pageText.split('\n').map(l => l.trim()).filter(Boolean);
+        for (let l = 0; l < linhas.length; l++) {
+          const linha = linhas[l];
+          // Se a linha tem a matrícula numérica (ex: 1.015344), o nome costuma vir ao lado ou na linha seguinte
+          if (/^1\.\d{6}/.test(linha)) {
+            const semMatricula = linha.replace(/^1\.\d{6}\s*/, '').trim();
+            if (semMatricula.length > 3 && !semMatricula.toLowerCase().includes('demonstrativo')) {
+              nomeEncontrado = semMatricula;
+              break;
+            }
+          }
+        }
       }
 
       // 4. Prevenção de duplicidade: checa se já existe registro com mesmo CPF e competência
