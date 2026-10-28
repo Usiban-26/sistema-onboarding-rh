@@ -29,7 +29,7 @@ export default function AdminPage() {
   const [systemUsers, setSystemUsers] = useState([]);
   const [filtro, setFiltro] = useState('Todos');
 
-  // DP e Competências
+  // Módulo DP (Holerites e Competências)
   const [competencias, setCompetencias] = useState([]);
   const [anoFiltro, setAnoFiltro] = useState(new Date().getFullYear());
   const [competenciaSelecionada, setCompetenciaSelecionada] = useState('');
@@ -45,17 +45,17 @@ export default function AdminPage() {
   const [novaCompCodigo, setNovaCompCodigo] = useState('');
   const [novaCompAno, setNovaCompAno] = useState(new Date().getFullYear());
 
-  // Fila de Disparo em Massa
-  const [disparandoEmFila, setDisparandoEmFila] = useState(false);
-  const [filaRestante, setFilaRestante] = useState(0);
-
-  // Usuários e R&S
+  // Gestão de Usuários (Admin)
   const [novoUserNome, setNovoUserNome] = useState('');
   const [novoUserEmail, setNovoUserEmail] = useState('');
   const [novoUserSenha, setNovoUserSenha] = useState('');
   const [novoUserRole, setNovoUserRole] = useState('recrutamento');
+
+  // Edição de Candidatos pelo RH (R&S)
   const [candidatoEditando, setCandidatoEditando] = useState(null);
   const [dadosEdicao, setDadosEdicao] = useState({});
+
+  // Documentos e Campos (R&S)
   const [novoDocTitulo, setNovoDocTitulo] = useState('');
   const [novoDocDesc, setNovoDocDesc] = useState('');
   const [novoDocObrigatorio, setNovoDocObrigatorio] = useState(true);
@@ -64,6 +64,8 @@ export default function AdminPage() {
   const [novoCampoPlaceholder, setNovoCampoPlaceholder] = useState('');
   const [novoCampoObrigatorio, setNovoCampoObrigatorio] = useState(true);
   const [novoCampoValidacao, setNovoCampoValidacao] = useState('none');
+
+  // Convites WhatsApp (R&S)
   const [conviteNome, setConviteNome] = useState('');
   const [conviteTelefone, setConviteTelefone] = useState('');
   const [conviteCargo, setConviteCargo] = useState('');
@@ -73,11 +75,14 @@ export default function AdminPage() {
   );
 
   async function carregarDados() {
-    // 1. Candidatos
-    const { data: candData } = await supabase.from('onboarding_candidates').select('*').order('created_at', { ascending: false });
+    // 1. Candidatos R&S
+    const { data: candData } = await supabase
+      .from('onboarding_candidates')
+      .select('*')
+      .order('created_at', { ascending: false });
     if (candData) setCandidates(candData);
 
-    // 2. Documentos
+    // 2. Documentos de Candidatos
     const { data: docsData } = await supabase.from('candidate_documents').select('*');
     if (docsData) {
       const agrupados = {};
@@ -88,29 +93,61 @@ export default function AdminPage() {
       setCandidateDocs(agrupados);
     }
 
-    // 3. Documentos Exigidos & Campos
-    const { data: reqDocs } = await supabase.from('required_documents').select('*').eq('is_active', true).order('created_at', { ascending: true });
+    // 3. Documentos Exigidos & Campos Pessoais
+    const { data: reqDocs } = await supabase
+      .from('required_documents')
+      .select('*')
+      .eq('is_active', true)
+      .order('created_at', { ascending: true });
     if (reqDocs) setRequiredDocs(reqDocs);
 
-    const { data: reqFields } = await supabase.from('required_personal_fields').select('*').eq('is_active', true).order('display_order', { ascending: true });
+    const { data: reqFields } = await supabase
+      .from('required_personal_fields')
+      .select('*')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true })
+      .order('created_at', { ascending: true });
     if (reqFields) setRequiredFields(reqFields);
 
     // 4. Convites & Usuários
-    const { data: invData } = await supabase.from('admission_invites').select('*').order('created_at', { ascending: false });
+    const { data: invData } = await supabase
+      .from('admission_invites')
+      .select('*')
+      .order('created_at', { ascending: false });
     if (invData) setInvites(invData);
 
-    const { data: usersData } = await supabase.from('system_users').select('*').order('created_at', { ascending: false });
+    const { data: usersData } = await supabase
+      .from('system_users')
+      .select('*')
+      .order('created_at', { ascending: false });
     if (usersData) setSystemUsers(usersData);
 
-    // 5. Competências do DP
-    const { data: compData } = await supabase.from('payroll_competences').select('*').order('created_at', { ascending: false });
+    // 5. Competências Gerenciadas do DP
+    const { data: compData } = await supabase
+      .from('payroll_competences')
+      .select('*')
+      .order('created_at', { ascending: false });
+
     if (compData && compData.length > 0) {
       setCompetencias(compData);
       if (!competenciaSelecionada) setCompetenciaSelecionada(compData[0].code);
+    } else {
+      // Fallback padrão se ainda não tiver competências cadastradas
+      const padroes = [
+        { id: '1', title: '10/2026 - Folha Mensal', code: '10/2026', year: 2026 },
+        { id: '2', title: '09/2026 - Folha Mensal', code: '09/2026', year: 2026 },
+        { id: '3', title: '2026 - 1ª Parcela 13º Salário', code: '13_1_2026', year: 2026 },
+        { id: '4', title: '2026 - 2ª Parcela 13º Salário', code: '13_2_2026', year: 2026 }
+      ];
+      setCompetencias(padroes);
+      if (!competenciaSelecionada) setCompetenciaSelecionada(padroes[0].code);
     }
 
-    // 6. Holerites
-    const { data: payrollsData } = await supabase.from('employee_payrolls').select('*').order('created_at', { ascending: false });
+    // 6. Holerites do DP
+    const { data: payrollsData } = await supabase
+      .from('employee_payrolls')
+      .select('*')
+      .order('created_at', { ascending: false });
     if (payrollsData) setPayrolls(payrollsData);
   }
 
@@ -151,7 +188,323 @@ export default function AdminPage() {
     setLoginSenha('');
   }
 
-  // --- GESTÃO DE COMPETÊNCIAS ---
+  // --- R&S: AÇÕES DO CANDIDATO ---
+  function extrairTelefone(candidato) {
+    let fone = candidato.phone || '';
+    if (!fone && candidato.custom_data) {
+      const k = Object.keys(candidato.custom_data).find(key => {
+        const lower = key.toLowerCase();
+        return lower.includes('whatsapp') || lower.includes('telefone') || lower.includes('celular');
+      });
+      if (k) fone = candidato.custom_data[k];
+    }
+    fone = (fone || '').replace(/\D/g, '');
+    if (fone && !fone.startsWith('55') && fone.length <= 11) fone = '55' + fone;
+    return fone;
+  }
+
+  async function handleAprovar(candidato) {
+    const dataExame = prompt('Data e Horário do Exame Médico Admissional:');
+    if (dataExame === null) return;
+    const dataIntegracao = prompt('Data e Horário da Integração na Usina:');
+    if (dataIntegracao === null) return;
+
+    const { error } = await supabase
+      .from('onboarding_candidates')
+      .update({ 
+        status: 'Aprovado', 
+        feedback_reason: `Exame: ${dataExame || 'A definir'} | Integração: ${dataIntegracao || 'A definir'}` 
+      })
+      .eq('id', candidato.id);
+
+    if (!error) {
+      carregarDados();
+      const fone = extrairTelefone(candidato);
+      const primeiroNome = (candidato.full_name || 'Candidato').trim().split(' ')[0];
+      const texto = `Olá ${primeiroNome}, parabéns! Seus documentos e cadastro foram validados e aprovados com sucesso pelo RH da Usina Bandeirante (USIBAN).\n\nSeguem as orientações para suas próximas etapas:\n🩺 *Exame Médico Admissional:* ${dataExame || 'A agendar'}\n🤝 *Integração e Boas-Vindas:* ${dataIntegracao || 'A agendar'}\n\nEm caso de dúvidas, estamos à disposição. Seja bem-vindo(a) à equipe Usiban!`;
+      if (fone && fone.length >= 10) window.open(`https://wa.me/${fone}?text=${encodeURIComponent(texto)}`, '_blank');
+      else alert('Candidato aprovado com sucesso!');
+    }
+  }
+
+  async function handleRejeitar(candidato) {
+    const motivo = prompt('Informe o motivo da pendência com os documentos/dados (Ex: RG ilegível, CPF incorreto):');
+    if (!motivo) return;
+
+    const { error } = await supabase
+      .from('onboarding_candidates')
+      .update({ status: 'Rejeitado / Pendência', feedback_reason: motivo })
+      .eq('id', candidato.id);
+
+    if (!error) {
+      carregarDados();
+      const fone = extrairTelefone(candidato);
+      const primeiroNome = (candidato.full_name || 'Candidato').trim().split(' ')[0];
+      const texto = `Olá ${primeiroNome}, aqui é do setor de Recursos Humanos da Usina Bandeirante (USIBAN).\n\nIdentificamos uma pendência na documentação enviada para sua admissão:\n⚠️ *Motivo da Pendência:* ${motivo}\n\nPor favor, acesse o link a seguir para corrigir seus dados ou reenviar os documentos pendentes:\n👉 ${LINK_OFICIAL_PORTAL}\n\nQualquer dúvida, responda por aqui.`;
+      if (fone && fone.length >= 10) window.open(`https://wa.me/${fone}?text=${encodeURIComponent(texto)}`, '_blank');
+      else alert('Status alterado para pendência!');
+    }
+  }
+
+  async function handleExcluirCandidato(candidato) {
+    const confirmacao = prompt(`⚠️ ATENÇÃO - AÇÃO IRREVERSÍVEL ⚠️\n\nDeseja excluir permanentemente o candidato "${candidato.full_name}"?\nTodos os dados e arquivos serão deletados.\n\nDigite EXCLUIR para confirmar:`);
+    if (confirmacao !== 'EXCLUIR') return;
+
+    await supabase.from('candidate_documents').delete().eq('candidate_id', candidato.id);
+    await supabase.from('onboarding_candidates').delete().eq('id', candidato.id);
+    alert(`Candidato "${candidato.full_name}" excluído.`);
+    carregarDados();
+  }
+
+  function iniciarEdicao(candidato) {
+    setCandidatoEditando(candidato);
+    setDadosEdicao(candidato.custom_data ? { ...candidato.custom_data } : {
+      'Nome Completo': candidato.full_name,
+      'Cargo Pretendido': candidato.job_title,
+      'Departamento': candidato.department,
+      'E-mail': candidato.email,
+      'WhatsApp / Telefone': candidato.phone
+    });
+  }
+
+  async function salvarEdicaoRH(e) {
+    e.preventDefault();
+    if (!candidatoEditando) return;
+    const novoNome = dadosEdicao['Nome Completo'] || candidatoEditando.full_name;
+    const novoEmail = dadosEdicao['E-mail'] || candidatoEditando.email;
+    const novoTelefone = dadosEdicao['WhatsApp / Telefone'] || dadosEdicao['Telefone'] || candidatoEditando.phone;
+    const novoCargo = dadosEdicao['Cargo Pretendido'] || candidatoEditando.job_title;
+    const novoDepto = dadosEdicao['Departamento'] || candidatoEditando.department;
+
+    const { error } = await supabase.from('onboarding_candidates').update({
+      full_name: novoNome,
+      email: novoEmail,
+      phone: novoTelefone,
+      job_title: novoCargo,
+      department: novoDepto,
+      custom_data: dadosEdicao
+    }).eq('id', candidatoEditando.id);
+
+    if (!error) {
+      alert('Dados cadastrais atualizados com sucesso!');
+      setCandidatoEditando(null);
+      carregarDados();
+    }
+  }
+
+  // --- EXPORTAÇÕES R&S (EXCEL CSV & PDF) ---
+  function handleExportarCSV(somenteAprovados = true) {
+    const listaAlvo = somenteAprovados ? candidates.filter(c => c.status === 'Aprovado') : candidates;
+    if (listaAlvo.length === 0) {
+      alert('Nenhum candidato encontrado para exportar.');
+      return;
+    }
+    const colunasDinamicas = new Set();
+    listaAlvo.forEach(c => {
+      if (c.custom_data) Object.keys(c.custom_data).forEach(col => colunasDinamicas.add(col));
+    });
+    const listaColunas = Array.from(colunasDinamicas);
+    const cabecalho = ['Nome Completo', 'Status', 'Data de Envio', 'Observações / Agendamento', ...listaColunas];
+
+    const linhas = listaAlvo.map(c => {
+      const dataCriacao = c.created_at ? new Date(c.created_at).toLocaleDateString('pt-BR') : '';
+      const linhaBase = [
+        `"${(c.full_name || '').replace(/"/g, '""')}"`,
+        `"${(c.status || '').replace(/"/g, '""')}"`,
+        `"${dataCriacao}"`,
+        `"${(c.feedback_reason || '').replace(/"/g, '""')}"`
+      ];
+      const valoresDinamicos = listaColunas.map(col => `"${String(c.custom_data?.[col] ?? '').replace(/"/g, '""')}"`);
+      return [...linhaBase, ...valoresDinamicos].join(';');
+    });
+
+    const blob = new Blob(['\uFEFF' + [cabecalho.map(c => `"${c}"`).join(';'), ...linhas].join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `admissoes_usiban_${somenteAprovados ? 'aprovados' : 'todos'}_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  function handleExportarPDF(somenteAprovados = false) {
+    const listaAlvo = somenteAprovados ? candidates.filter(c => c.status === 'Aprovado') : candidates;
+    if (listaAlvo.length === 0) {
+      alert('Nenhum candidato encontrado.');
+      return;
+    }
+    const janela = window.open('', '_blank');
+    if (!janela) return;
+
+    const linhasTabela = listaAlvo.map((c, i) => `
+      <tr style="border-bottom: 1px solid #cbd5e1; font-size: 11px;">
+        <td style="padding: 6px; text-align: center;">${i + 1}</td>
+        <td style="padding: 6px; font-weight: bold;">${c.full_name}</td>
+        <td style="padding: 6px;">${c.custom_data?.['CPF'] || '-'}</td>
+        <td style="padding: 6px;">${c.job_title || '-'}</td>
+        <td style="padding: 6px;">${c.department || '-'}</td>
+        <td style="padding: 6px;">${c.phone || '-'}</td>
+        <td style="padding: 6px; font-weight: bold;">${c.status}</td>
+        <td style="padding: 6px;">${c.created_at ? new Date(c.created_at).toLocaleDateString('pt-BR') : '-'}</td>
+      </tr>
+    `).join('');
+
+    janela.document.write(`
+      <html>
+        <head><title>Relatório Usiban</title></head>
+        <body style="font-family: sans-serif; padding: 24px;">
+          <h2 style="color: #0c5e31; margin-bottom: 4px;">Usina Bandeirante (USIBAN)</h2>
+          <p style="color: #64748b; font-size: 12px; margin-top: 0;">Relatório de Candidatos e Admissões • Emissão: ${new Date().toLocaleDateString('pt-BR')}</p>
+          <table style="width: 100%; border-collapse: collapse; margin-top: 16px;">
+            <thead>
+              <tr style="background: #0c5e31; color: #fff; font-size: 11px; text-align: left;">
+                <th style="padding: 6px;">#</th><th>Nome</th><th>CPF</th><th>Cargo</th><th>Departamento</th><th>Contato</th><th>Status</th><th>Data</th>
+              </tr>
+            </thead>
+            <tbody>${linhasTabela}</tbody>
+          </table>
+          <script>window.print();</script>
+        </body>
+      </html>
+    `);
+    janela.document.close();
+  }
+
+  // --- CONVITES WHATSAPP ---
+  async function handleAdicionarConviteIndividual(e) {
+    e.preventDefault();
+    if (!conviteNome || !conviteTelefone) return;
+    const telefoneLimpo = conviteTelefone.replace(/\D/g, '');
+    const { error } = await supabase.from('admission_invites').insert([
+      { candidate_name: conviteNome.trim(), phone: telefoneLimpo, job_title: conviteCargo.trim(), status: 'Pendente' }
+    ]);
+    if (!error) {
+      setConviteNome('');
+      setConviteTelefone('');
+      setConviteCargo('');
+      carregarDados();
+      alert('Convite adicionado!');
+    }
+  }
+
+  async function handleImportarLote(e) {
+    e.preventDefault();
+    if (!listaLote.trim()) return;
+
+    const linhas = listaLote.split('\n');
+    const novosConvites = [];
+    linhas.forEach(linha => {
+      const partes = linha.split(/[,;\t]/);
+      if (partes.length >= 2) {
+        const nome = partes[0].trim();
+        const telefone = partes[1].replace(/\D/g, '');
+        const cargo = partes[2] ? partes[2].trim() : '';
+        if (nome && telefone.length >= 10) {
+          novosConvites.push({ candidate_name: nome, phone: telefone, job_title: cargo, status: 'Pendente' });
+        }
+      }
+    });
+
+    if (novosConvites.length === 0) {
+      alert('Formato inválido. Use: Nome, Telefone (um por linha).');
+      return;
+    }
+
+    const { error } = await supabase.from('admission_invites').insert(novosConvites);
+    if (!error) {
+      setListaLote('');
+      carregarDados();
+      alert(`${novosConvites.length} candidatos importados!`);
+    }
+  }
+
+  async function dispararWhatsAppConvite(convite) {
+    const primeiroNome = convite.candidate_name.split(' ')[0];
+    const mensagem = mensagemModelo.replace('{NOME}', primeiroNome);
+    let fone = convite.phone.replace(/\D/g, '');
+    if (!fone.startsWith('55') && fone.length <= 11) fone = '55' + fone;
+
+    await supabase.from('admission_invites').update({ status: 'Enviado' }).eq('id', convite.id);
+    carregarDados();
+    window.open(`https://wa.me/${fone}?text=${encodeURIComponent(mensagem)}`, '_blank');
+  }
+
+  async function handleExcluirConvite(id) {
+    if (!confirm('Deseja remover este convite?')) return;
+    await supabase.from('admission_invites').delete().eq('id', id);
+    carregarDados();
+  }
+
+  // --- CAMPOS E DOCUMENTOS EXIGIDOS ---
+  async function handleMoverCampo(index, direcao) {
+    const novoIndex = direcao === 'cima' ? index - 1 : index + 1;
+    if (novoIndex < 0 || novoIndex >= requiredFields.length) return;
+
+    const novaLista = [...requiredFields];
+    const [itemRemovido] = novaLista.splice(index, 1);
+    novaLista.splice(novoIndex, 0, itemRemovido);
+    setRequiredFields(novaLista);
+
+    for (let i = 0; i < novaLista.length; i++) {
+      await supabase
+        .from('required_personal_fields')
+        .update({ display_order: i + 1 })
+        .eq('id', novaLista[i].id);
+    }
+  }
+
+  async function handleAdicionarCampo(e) {
+    e.preventDefault();
+    if (!novoCampoLabel) return;
+    const proximaOrdem = requiredFields.length + 1;
+    const { error } = await supabase.from('required_personal_fields').insert([
+      {
+        label: novoCampoLabel,
+        field_type: novoCampoTipo,
+        placeholder: novoCampoPlaceholder,
+        is_required: novoCampoObrigatorio,
+        validation_rule: novoCampoValidacao,
+        display_order: proximaOrdem,
+        is_active: true
+      }
+    ]);
+    if (!error) {
+      setNovoCampoLabel('');
+      setNovoCampoPlaceholder('');
+      setNovoCampoValidacao('none');
+      carregarDados();
+      alert('Campo adicionado!');
+    }
+  }
+
+  async function handleDesativarCampo(id) {
+    if (!confirm('Deseja desativar este campo?')) return;
+    await supabase.from('required_personal_fields').update({ is_active: false }).eq('id', id);
+    carregarDados();
+  }
+
+  async function handleAdicionarDoc(e) {
+    e.preventDefault();
+    if (!novoDocTitulo) return;
+    const { error } = await supabase.from('required_documents').insert([
+      { title: novoDocTitulo, description: novoDocDesc, is_required: novoDocObrigatorio, is_active: true }
+    ]);
+    if (!error) {
+      setNovoDocTitulo('');
+      setNovoDocDesc('');
+      carregarDados();
+      alert('Documento adicionado!');
+    }
+  }
+
+  async function handleDesativarDoc(id) {
+    if (!confirm('Deseja desativar este documento?')) return;
+    await supabase.from('required_documents').update({ is_active: false }).eq('id', id);
+    carregarDados();
+  }
+
+  // --- MÓDULO DP: GERENCIAR COMPETÊNCIAS ---
   async function handleSalvarCompetencia(e) {
     e.preventDefault();
     if (!novaCompTitulo || !novaCompCodigo) return;
@@ -178,12 +531,12 @@ export default function AdminPage() {
   }
 
   async function handleExcluirCompetencia(id) {
-    if (!confirm('Deseja excluir esta competência? Os holerites já associados a ela permanecerão no banco.')) return;
+    if (!confirm('Deseja excluir esta competência? Os holerites já existentes não serão apagados.')) return;
     await supabase.from('payroll_competences').delete().eq('id', id);
     carregarDados();
   }
 
-  // --- FAIXA DO SENIOR: FATIAMENTO COM VALIDAÇÃO ---
+  // --- MÓDULO DP: IMPORTAÇÃO E PROCESSAMENTO DO SENIOR HCM ---
   async function handleUploadSeniorHCM(e) {
     e.preventDefault();
     if (!arquivoSenior) {
@@ -191,7 +544,7 @@ export default function AdminPage() {
       return;
     }
     if (!competenciaSelecionada) {
-      alert('Selecione a competência antes de importar.');
+      alert('Selecione uma competência ativa.');
       return;
     }
 
@@ -228,17 +581,17 @@ export default function AdminPage() {
     setProcessandoPdf(false);
   }
 
-  // --- EXCLUSÃO EM MASSA DE HOLERITES DA COMPETÊNCIA ---
+  // Limpeza de Holerites da Competência
   async function handleLimparTodosHolerites() {
-    const confirmacao = prompt(`⚠️ ATENÇÃO: Deseja apagar TODOS os holerites importados da competência "${competenciaSelecionada}"?\n\nDigite EXCLUIR para confirmar:`);
+    const confirmacao = prompt(`⚠️ ATENÇÃO: Deseja apagar TODOS os holerites da competência "${competenciaSelecionada}"?\n\nDigite EXCLUIR para confirmar:`);
     if (confirmacao !== 'EXCLUIR') return;
 
     await supabase.from('employee_payrolls').delete().eq('competence', competenciaSelecionada);
-    alert('Todos os holerites da competência foram excluídos.');
+    alert('Holerites da competência removidos.');
     carregarDados();
   }
 
-  // --- DISPARO DE WHATSAPP (INDIVIDUAL E EM MASSA) ---
+  // Disparo WhatsApp do Holerite
   function obterTelefonePorCpf(cpf) {
     const cpfLimpo = (cpf || '').replace(/\D/g, '');
     const achado = candidates.find(c => {
@@ -262,80 +615,68 @@ export default function AdminPage() {
     }
 
     const primeiroNome = (holerite.employee_name || 'Colaborador').split(' ')[0];
-    const mensagem = `Olá ${primeiroNome}, o seu Demonstrativo de Pagamento referente à competência *${holerite.competence}* da Usina Bandeirante (USIBAN) já está disponível.\n\n📄 *Acesse o documento oficial no link abaixo:*\n${holerite.file_url}\n\nEm caso de dúvidas sobre a folha, contate o Departamento Pessoal.`;
+    const mensagem = `Olá ${primeiroNome}, o seu Demonstrativo de Pagamento referente à competência *${holerite.competence}* da Usina Bandeirante (USIBAN) já está disponível.\n\n📄 *Acesse o seu documento oficial no link abaixo:*\n${holerite.file_url}\n\nEm caso de dúvidas sobre a folha, entre em contato com o Departamento Pessoal.`;
 
     await supabase.from('employee_payrolls').update({ status: 'Enviado', channel: 'WhatsApp' }).eq('id', holerite.id);
     carregarDados();
     window.open(`https://wa.me/${fone}?text=${encodeURIComponent(mensagem)}`, '_blank');
   }
 
-  // Envio Sequencial da Fila
   async function handleIniciarDisparoEmFila() {
     const pendentes = payrolls.filter(p => p.competence === competenciaSelecionada && p.status !== 'Enviado');
     if (pendentes.length === 0) {
-      alert('Não existem holerites pendentes de envio nesta competência.');
+      alert('Nenhum holerite pendente nesta competência.');
       return;
     }
 
-    if (!confirm(`Deseja iniciar o envio sequencial para ${pendentes.length} colaboradores pendentes? O sistema abrirá o WhatsApp do próximo a cada confirmação.`)) return;
+    if (!confirm(`Iniciar envio sequencial para ${pendentes.length} colaboradores pendentes? O WhatsApp de cada um será aberto em fila.`)) return;
 
     for (const item of pendentes) {
       await handleDispararHoleriteWhatsApp(item);
-      const continuar = confirm(`Envio aberto para ${item.employee_name}. Deseja prosseguir para o próximo?`);
+      const continuar = confirm(`Envio aberto para ${item.employee_name}. Deseja prosseguir para o próximo da fila?`);
       if (!continuar) break;
     }
   }
 
-  // --- R&S: CONTATO, APROVAÇÃO, PENDÊNCIA E EXCLUSÃO ---
-  function extrairTelefone(candidato) {
-    let fone = candidato.phone || '';
-    if (!fone && candidato.custom_data) {
-      const k = Object.keys(candidato.custom_data).find(key => {
-        const lower = key.toLowerCase();
-        return lower.includes('whatsapp') || lower.includes('telefone') || lower.includes('celular');
-      });
-      if (k) fone = candidato.custom_data[k];
+  // --- GESTÃO DE USUÁRIOS (ADMIN) ---
+  async function handleCriarUsuario(e) {
+    e.preventDefault();
+    if (!novoUserNome || !novoUserEmail || !novoUserSenha) return;
+
+    const { error } = await supabase.from('system_users').insert([
+      {
+        name: novoUserNome.trim(),
+        email: novoUserEmail.trim().toLowerCase(),
+        password: novoUserSenha,
+        role: novoUserRole,
+        is_active: true
+      }
+    ]);
+
+    if (!error) {
+      alert(`Usuário ${novoUserNome} criado com sucesso!`);
+      setNovoUserNome('');
+      setNovoUserEmail('');
+      setNovoUserSenha('');
+      setNovoUserRole('recrutamento');
+      carregarDados();
+    } else {
+      alert('Erro ao criar usuário: ' + error.message);
     }
-    fone = (fone || '').replace(/\D/g, '');
-    if (fone && !fone.startsWith('55') && fone.length <= 11) fone = '55' + fone;
-    return fone;
   }
 
-  async function handleAprovar(candidato) {
-    const dataExame = prompt('Data e Horário do Exame Médico Admissional:');
-    if (dataExame === null) return;
-    const dataIntegracao = prompt('Data e Horário da Integração na Usina:');
-    if (dataIntegracao === null) return;
-
-    await supabase
-      .from('onboarding_candidates')
-      .update({ status: 'Aprovado', feedback_reason: `Exame: ${dataExame || 'A definir'} | Integração: ${dataIntegracao || 'A definir'}` })
-      .eq('id', candidato.id);
-
+  async function handleAlternarStatusUsuario(id, statusAtual) {
+    await supabase.from('system_users').update({ is_active: !statusAtual }).eq('id', id);
     carregarDados();
-    const fone = extrairTelefone(candidato);
-    const primeiroNome = (candidato.full_name || 'Candidato').trim().split(' ')[0];
-    const texto = `Olá ${primeiroNome}, parabéns! Seus documentos e cadastro foram validados e aprovados com sucesso pelo RH da Usina Bandeirante (USIBAN).\n\nSeguem as orientações:\n🩺 *Exame Médico:* ${dataExame || 'A agendar'}\n🤝 *Integração:* ${dataIntegracao || 'A agendar'}\n\nSeja bem-vindo(a) à equipe Usiban!`;
-    if (fone && fone.length >= 10) window.open(`https://wa.me/${fone}?text=${encodeURIComponent(texto)}`, '_blank');
   }
 
-  async function handleRejeitar(candidato) {
-    const motivo = prompt('Informe o motivo da pendência:');
-    if (!motivo) return;
-
-    await supabase.from('onboarding_candidates').update({ status: 'Rejeitado / Pendência', feedback_reason: motivo }).eq('id', candidato.id);
-    carregarDados();
-    const fone = extrairTelefone(candidato);
-    const primeiroNome = (candidato.full_name || 'Candidato').trim().split(' ')[0];
-    const texto = `Olá ${primeiroNome}, aqui é do setor de Recursos Humanos da Usina Bandeirante (USIBAN).\n\nIdentificamos uma pendência na sua documentação:\n⚠️ *Motivo:* ${motivo}\n\nPor favor, acesse o link para corrigir:\n👉 ${LINK_OFICIAL_PORTAL}`;
-    if (fone && fone.length >= 10) window.open(`https://wa.me/${fone}?text=${encodeURIComponent(texto)}`, '_blank');
-  }
-
-  async function handleExcluirCandidato(candidato) {
-    const confirmacao = prompt(`⚠️ ATENÇÃO: Deseja excluir permanentemente o candidato "${candidato.full_name}"?\nDigite EXCLUIR para confirmar:`);
-    if (confirmacao !== 'EXCLUIR') return;
-    await supabase.from('candidate_documents').delete().eq('candidate_id', candidato.id);
-    await supabase.from('onboarding_candidates').delete().eq('id', candidato.id);
+  async function handleExcluirUsuario(user) {
+    if (user.email === 'admin@usiban.com.br') {
+      alert('O administrador master não pode ser excluído.');
+      return;
+    }
+    if (!confirm(`Deseja remover permanentemente o usuário ${user.name}?`)) return;
+    await supabase.from('system_users').delete().eq('id', user.id);
     carregarDados();
   }
 
@@ -374,7 +715,7 @@ export default function AdminPage() {
     );
   }
 
-  // Filtros de Competência por Ano
+  // Filtragem de Competências
   const anosDisponiveis = Array.from(new Set(competencias.map(c => c.year || 2026))).sort((a, b) => b - a);
   const competenciasDoAno = competencias.filter(c => Number(c.year) === Number(anoFiltro));
   const holeritesFiltrados = payrolls.filter(p => p.competence === competenciaSelecionada);
@@ -407,11 +748,11 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* Navegação de Módulos */}
+      {/* Navegação entre Módulos Principais */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #cbd5e1', paddingBottom: '10px', flexWrap: 'wrap' }}>
         {usuarioLogado.role === 'admin' && (
           <button onClick={() => setModuloAtivo('menu')} style={{ padding: '8px 14px', borderRadius: '6px', border: 'none', background: moduloAtivo === 'menu' ? '#0c5e31' : '#f1f5f9', color: moduloAtivo === 'menu' ? '#fff' : '#475569', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}>
-            🏠 Início
+            🏠 Início (Módulos)
           </button>
         )}
 
@@ -434,7 +775,274 @@ export default function AdminPage() {
         )}
       </div>
 
-      {/* --- MÓDULO DP: HOLERITES E SENIOR HCM --- */}
+      {/* --- MÓDULO 0: HUB CENTRAL --- */}
+      {moduloAtivo === 'menu' && usuarioLogado.role === 'admin' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginTop: '10px' }}>
+          <div onClick={() => setModuloAtivo('recrutamento')} style={{ background: '#fff', border: '2px solid #0c5e31', borderRadius: '10px', padding: '24px', cursor: 'pointer', boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}>
+            <span style={{ fontSize: '32px' }}>🟢</span>
+            <h3 style={{ color: '#0c5e31', margin: '12px 0 6px 0', fontSize: '18px' }}>Módulo Recrutamento & Seleção</h3>
+            <p style={{ color: '#64748b', fontSize: '13.5px', margin: 0 }}>Gestão de admissões, convites via WhatsApp, conferência documental e relatórios admissionais.</p>
+          </div>
+
+          <div onClick={() => setModuloAtivo('dp')} style={{ background: '#fff', border: '2px solid #003366', borderRadius: '10px', padding: '24px', cursor: 'pointer', boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}>
+            <span style={{ fontSize: '32px' }}>🔵</span>
+            <h3 style={{ color: '#003366', margin: '12px 0 6px 0', fontSize: '18px' }}>Módulo Departamento Pessoal (DP)</h3>
+            <p style={{ color: '#64748b', fontSize: '13.5px', margin: 0 }}>Fatiamento de folha do Senior HCM, armazenamento seguro no Supabase e envio de holerites por WhatsApp.</p>
+          </div>
+
+          <div onClick={() => setModuloAtivo('usuarios')} style={{ background: '#fff', border: '2px solid #64748b', borderRadius: '10px', padding: '24px', cursor: 'pointer', boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}>
+            <span style={{ fontSize: '32px' }}>⚙️</span>
+            <h3 style={{ color: '#334155', margin: '12px 0 6px 0', fontSize: '18px' }}>Gestão de Acessos & Usuários</h3>
+            <p style={{ color: '#64748b', fontSize: '13.5px', margin: 0 }}>Controle de perfis com permissões exclusivas para equipes de R&S, DP ou Administradores.</p>
+          </div>
+        </div>
+      )}
+
+      {/* --- MÓDULO 1: RECRUTAMENTO & SELEÇÃO (R&S) --- */}
+      {moduloAtivo === 'recrutamento' && (
+        <div>
+          {/* Sub-abas de R&S */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '18px', flexWrap: 'wrap' }}>
+            <button onClick={() => setAbaRS('candidatos')} style={{ padding: '8px 14px', border: 'none', borderBottom: abaRS === 'candidatos' ? '3px solid #0c5e31' : 'none', background: abaRS === 'candidatos' ? '#e8f5e9' : '#f8fafc', color: abaRS === 'candidatos' ? '#0c5e31' : '#64748b', fontWeight: 'bold', cursor: 'pointer', borderRadius: '4px' }}>
+              👥 Candidatos & Validação
+            </button>
+            <button onClick={() => setAbaRS('convites')} style={{ padding: '8px 14px', border: 'none', borderBottom: abaRS === 'convites' ? '3px solid #0c5e31' : 'none', background: abaRS === 'convites' ? '#e8f5e9' : '#f8fafc', color: abaRS === 'convites' ? '#0c5e31' : '#64748b', fontWeight: 'bold', cursor: 'pointer', borderRadius: '4px' }}>
+              📨 Convidar Candidatos (WhatsApp)
+            </button>
+            <button onClick={() => setAbaRS('campos')} style={{ padding: '8px 14px', border: 'none', borderBottom: abaRS === 'campos' ? '3px solid #0c5e31' : 'none', background: abaRS === 'campos' ? '#e8f5e9' : '#f8fafc', color: abaRS === 'campos' ? '#0c5e31' : '#64748b', fontWeight: 'bold', cursor: 'pointer', borderRadius: '4px' }}>
+              📝 Campos Pessoais
+            </button>
+            <button onClick={() => setAbaRS('documentos')} style={{ padding: '8px 14px', border: 'none', borderBottom: abaRS === 'documentos' ? '3px solid #0c5e31' : 'none', background: abaRS === 'documentos' ? '#e8f5e9' : '#f8fafc', color: abaRS === 'documentos' ? '#0c5e31' : '#64748b', fontWeight: 'bold', cursor: 'pointer', borderRadius: '4px' }}>
+              📋 Documentos Exigidos
+            </button>
+          </div>
+
+          {/* Modal Edição do RH */}
+          {candidatoEditando && (
+            <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
+              <div style={{ background: '#fff', padding: '24px', borderRadius: '10px', width: '100%', maxWidth: '580px', maxHeight: '90vh', overflowY: 'auto' }}>
+                <h3 style={{ margin: '0 0 12px 0', color: '#0c5e31' }}>✏️ Corrigir Dados: {candidatoEditando.full_name}</h3>
+                <form onSubmit={salvarEdicaoRH} style={{ display: 'grid', gap: '10px' }}>
+                  {Object.entries(dadosEdicao).map(([campo, valor]) => (
+                    <div key={campo}>
+                      <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 'bold', marginBottom: '4px' }}>{campo}</label>
+                      <input
+                        type="text"
+                        value={valor || ''}
+                        onChange={(e) => setDadosEdicao({ ...dadosEdicao, [campo]: e.target.value })}
+                        style={{ width: '100%', boxSizing: 'border-box', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                      />
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' }}>
+                    <button type="button" onClick={() => setCandidatoEditando(null)} style={{ padding: '8px 14px', background: '#e2e8f0', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Cancelar</button>
+                    <button type="submit" style={{ padding: '8px 16px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Salvar</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* SUB-ABA 1: CANDIDATOS */}
+          {abaRS === 'candidatos' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '18px' }}>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {['Todos', 'Pendentes', 'Aprovados', 'Com Pendência'].map(status => (
+                    <button key={status} onClick={() => setFiltro(status)} style={{ padding: '6px 14px', borderRadius: '20px', border: '1px solid #cbd5e1', background: filtro === status ? '#0c5e31' : '#fff', color: filtro === status ? '#fff' : '#475569', cursor: 'pointer', fontWeight: '500', fontSize: '13px' }}>
+                      {status}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button onClick={() => handleExportarCSV(true)} style={{ padding: '7px 12px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}>📊 Excel (Aprovados)</button>
+                  <button onClick={() => handleExportarCSV(false)} style={{ padding: '7px 12px', background: '#003366', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}>📥 Excel (Todos)</button>
+                  <button onClick={() => handleExportarPDF(false)} style={{ padding: '7px 12px', background: '#475569', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}>📄 Relatório PDF</button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {candidates
+                  .filter(c => filtro === 'Todos' ? true : filtro === 'Pendentes' ? c.status === 'Pendente' : filtro === 'Aprovados' ? c.status === 'Aprovado' : c.status?.includes('Rejeitado'))
+                  .map((c) => {
+                    const badge = c.status === 'Aprovado' ? { bg: '#e8f5e9', color: '#0c5e31' } : c.status?.includes('Rejeitado') ? { bg: '#fee2e2', color: '#b91c1c' } : { bg: '#fef3c7', color: '#b45309' };
+                    const docsEnviados = candidateDocs[c.id] || [];
+                    const dadosExtras = c.custom_data || {};
+
+                    return (
+                      <div key={c.id} style={{ padding: '18px 20px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <strong style={{ fontSize: '18px' }}>{c.full_name}</strong>
+                            <span style={{ backgroundColor: badge.bg, color: badge.color, padding: '3px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold' }}>{c.status}</span>
+                          </div>
+                          
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                            {/* Botão de Edição Direta do RH */}
+                            <button onClick={() => iniciarEdicao(c)} style={{ padding: '6px 10px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
+                              ✏️ Editar
+                            </button>
+
+                            {/* Botão de WhatsApp com mensagem oficial */}
+                            <button
+                              onClick={() => {
+                                const fone = extrairTelefone(c);
+                                if (!fone) {
+                                  alert('Telefone não informado pelo candidato.');
+                                  return;
+                                }
+                                const primeiroNome = (c.full_name || 'Candidato').trim().split(' ')[0];
+                                const texto = `Olá ${primeiroNome}, aqui é do setor de Recursos Humanos da Usina Bandeirante (USIBAN).`;
+                                window.open(`https://wa.me/${fone}?text=${encodeURIComponent(texto)}`, '_blank');
+                              }}
+                              style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 10px', background: '#25D366', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                            >
+                              📱 WhatsApp
+                            </button>
+
+                            <button onClick={() => handleAprovar(c)} style={{ padding: '6px 12px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}>
+                              Aprovar ✓
+                            </button>
+                            <button onClick={() => handleRejeitar(c)} style={{ padding: '6px 12px', background: '#d97706', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}>
+                              Pendência ✕
+                            </button>
+                            <button onClick={() => handleExcluirCandidato(c)} style={{ padding: '6px 10px', background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
+                              🗑️
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Dados cadastrados em linha única */}
+                        <div style={{ padding: '14px', background: '#f8faf9', borderRadius: '6px', fontSize: '13.5px', border: '1px solid #e2e8f0' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {Object.entries(dadosExtras).map(([k, v]) => (
+                              <div key={k} style={{ borderBottom: '1px dashed #e2e8f0', paddingBottom: '6px' }}><b>{k}:</b> {String(v)}</div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {c.feedback_reason && (
+                          <div style={{ marginTop: '10px', padding: '10px', background: c.status === 'Aprovado' ? '#e8f5e9' : '#fef2f2', borderLeft: `4px solid ${c.status === 'Aprovado' ? '#0c5e31' : '#ef4444'}`, fontSize: '13px' }}>
+                            <b>{c.status === 'Aprovado' ? 'Agendamentos:' : 'Motivo da Pendência:'}</b> {c.feedback_reason}
+                          </div>
+                        )}
+
+                        <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px dashed #cbd5e1' }}>
+                          <span style={{ fontSize: '12.5px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>Documentos Enviados ({docsEnviados.length}):</span>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                            {docsEnviados.map(d => (
+                              <a key={d.id} href={d.document_url} target="_blank" rel="noopener noreferrer" style={{ padding: '4px 10px', background: '#e8f5e9', border: '1px solid #c8e6c9', color: '#0c5e31', textDecoration: 'none', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold' }}>
+                                📄 {d.document_name}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+
+          {/* SUB-ABA 2: CONVITES WHATSAPP */}
+          {abaRS === 'convites' && (
+            <div>
+              <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
+                <strong style={{ color: '#0c5e31', fontSize: '15px', display: 'block', marginBottom: '6px' }}>💬 Mensagem Padrão do WhatsApp</strong>
+                <textarea rows={3} value={mensagemModelo} onChange={e => setMensagemModelo(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+                <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <h3 style={{ marginTop: 0, color: '#0c5e31', fontSize: '16px' }}>+ Convidar Candidato Avulso</h3>
+                  <form onSubmit={handleAdicionarConviteIndividual} style={{ display: 'grid', gap: '10px' }}>
+                    <input placeholder="Nome do Candidato" value={conviteNome} onChange={e => setConviteNome(e.target.value)} required style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+                    <input placeholder="WhatsApp com DDD" value={conviteTelefone} onChange={e => setConviteTelefone(e.target.value)} required style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+                    <input placeholder="Cargo Pretendido" value={conviteCargo} onChange={e => setConviteCargo(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+                    <button type="submit" style={{ padding: '10px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Adicionar à Fila</button>
+                  </form>
+                </div>
+
+                <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <h3 style={{ marginTop: 0, color: '#003366', fontSize: '16px' }}>📋 Importar Lista em Lote</h3>
+                  <form onSubmit={handleImportarLote} style={{ display: 'grid', gap: '10px' }}>
+                    <textarea rows={4} placeholder="Nome, Telefone, Cargo (um por linha)" value={listaLote} onChange={e => setListaLote(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+                    <button type="submit" style={{ padding: '10px', background: '#003366', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Importar Lista</button>
+                  </form>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {invites.map(inv => (
+                  <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+                    <div><b>{inv.candidate_name}</b> - {inv.phone} ({inv.status})</div>
+                    <button onClick={() => dispararWhatsAppConvite(inv)} style={{ padding: '6px 12px', background: '#25D366', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+                      📱 Enviar WhatsApp
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* SUB-ABA 3: CAMPOS PESSOAIS */}
+          {abaRS === 'campos' && (
+            <div>
+              <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
+                <h3 style={{ marginTop: 0, color: '#0c5e31' }}>+ Cadastrar Novo Campo</h3>
+                <form onSubmit={handleAdicionarCampo} style={{ display: 'grid', gap: '10px', maxWidth: '500px' }}>
+                  <input placeholder="Rótulo / Pergunta do Campo" value={novoCampoLabel} onChange={e => setNovoCampoLabel(e.target.value)} required style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+                  <select value={novoCampoValidacao} onChange={e => setNovoCampoValidacao(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
+                    <option value="none">Sem validação especial</option>
+                    <option value="fullname">Nome Completo</option>
+                    <option value="cpf">CPF Válido</option>
+                    <option value="phone">WhatsApp 9 Dígitos</option>
+                  </select>
+                  <button type="submit" style={{ padding: '10px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Salvar Campo</button>
+                </form>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {requiredFields.map((f, idx) => (
+                  <div key={f.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+                    <div><b>{idx + 1}.</b> {f.label} ({f.validation_rule})</div>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button onClick={() => handleMoverCampo(idx, 'cima')} disabled={idx === 0} style={{ padding: '4px 8px', cursor: idx === 0 ? 'not-allowed' : 'pointer' }}>▲</button>
+                      <button onClick={() => handleMoverCampo(idx, 'baixo')} disabled={idx === requiredFields.length - 1} style={{ padding: '4px 8px', cursor: idx === requiredFields.length - 1 ? 'not-allowed' : 'pointer' }}>▼</button>
+                      <button onClick={() => handleDesativarCampo(f.id)} style={{ padding: '4px 8px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Desativar</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* SUB-ABA 4: DOCUMENTOS EXIGIDOS */}
+          {abaRS === 'documentos' && (
+            <div>
+              <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
+                <h3 style={{ marginTop: 0, color: '#0c5e31' }}>+ Cadastrar Novo Documento</h3>
+                <form onSubmit={handleAdicionarDoc} style={{ display: 'grid', gap: '10px', maxWidth: '500px' }}>
+                  <input placeholder="Título do Documento" value={novoDocTitulo} onChange={e => setNovoDocTitulo(e.target.value)} required style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+                  <input placeholder="Instruções" value={novoDocDesc} onChange={e => setNovoDocDesc(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+                  <button type="submit" style={{ padding: '10px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Salvar Documento</button>
+                </form>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {requiredDocs.map(d => (
+                  <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+                    <div><b>{d.title}</b> - {d.description}</div>
+                    <button onClick={() => handleDesativarDoc(d.id)} style={{ padding: '4px 8px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Desativar</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* --- MÓDULO 2: DEPARTAMENTO PESSOAL (SENIOR HCM) --- */}
       {moduloAtivo === 'dp' && (
         <div>
           {/* Modal Gerenciar Competências */}
@@ -449,7 +1057,7 @@ export default function AdminPage() {
                     <input placeholder="Ex: 11/2026 - Folha Mensal" value={novaCompTitulo} onChange={e => setNovaCompTitulo(e.target.value)} required style={{ width: '100%', boxSizing: 'border-box', padding: '7px', borderRadius: '4px', border: '1px solid #cbd5e1' }} />
                   </div>
                   <div>
-                    <label style={{ fontSize: '11px', fontWeight: 'bold' }}>Código (Exato no PDF)</label>
+                    <label style={{ fontSize: '11px', fontWeight: 'bold' }}>Código no PDF</label>
                     <input placeholder="Ex: 11/2026" value={novaCompCodigo} onChange={e => setNovaCompCodigo(e.target.value)} required style={{ width: '100%', boxSizing: 'border-box', padding: '7px', borderRadius: '4px', border: '1px solid #cbd5e1' }} />
                   </div>
                   <div>
@@ -484,8 +1092,6 @@ export default function AdminPage() {
           )}
 
           <div style={{ background: '#fff', padding: '22px', borderRadius: '10px', border: '1px solid #cbd5e1', marginBottom: '24px' }}>
-            
-            {/* Topo DP com Filtro de Ano e Seleção de Competência */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #003366', paddingBottom: '12px', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
               <div>
                 <h2 style={{ margin: 0, color: '#003366', fontSize: '20px' }}>📑 Importador & Disparador de Holerites (Senior HCM)</h2>
@@ -493,7 +1099,6 @@ export default function AdminPage() {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                {/* Filtro por Ano */}
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b', marginRight: '4px' }}>Ano:</label>
                   <select value={anoFiltro} onChange={e => setAnoFiltro(Number(e.target.value))} style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontWeight: 'bold' }}>
@@ -501,7 +1106,6 @@ export default function AdminPage() {
                   </select>
                 </div>
 
-                {/* Seletor da Competência Ativa */}
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b', marginRight: '4px' }}>Competência:</label>
                   <select 
@@ -515,16 +1119,13 @@ export default function AdminPage() {
                   </select>
                 </div>
 
-                {/* Botão para Gerenciar Competências */}
                 <button onClick={() => setModalCompAberto(true)} style={{ padding: '7px 10px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', fontSize: '12.5px', fontWeight: 'bold', color: '#334155' }}>
                   ⚙️ Gerenciar
                 </button>
               </div>
             </div>
 
-            {/* Upload e Painel de Envios */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', marginBottom: '20px' }}>
-              
               <div style={{ background: '#f8fafc', padding: '18px', borderRadius: '8px', border: '1px dashed #003366' }}>
                 <h3 style={{ margin: '0 0 8px 0', color: '#003366', fontSize: '16px' }}>1. Upload da Folha (Senior HCM)</h3>
                 <p style={{ fontSize: '12.5px', color: '#64748b', marginTop: 0 }}>
@@ -571,7 +1172,6 @@ export default function AdminPage() {
                 </div>
 
                 <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-                  {/* Botão de Disparo em Fila */}
                   <button 
                     onClick={handleIniciarDisparoEmFila}
                     style={{ flex: 1, padding: '10px', background: '#25D366', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
@@ -579,7 +1179,6 @@ export default function AdminPage() {
                     🚀 Disparar Todos os Pendentes ({totalPendentes})
                   </button>
 
-                  {/* Botão de Excluir em Lote */}
                   <button 
                     onClick={handleLimparTodosHolerites}
                     style={{ padding: '10px 14px', background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
@@ -591,7 +1190,6 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Listagem dos Holerites */}
             <h3 style={{ color: '#003366', margin: '24px 0 12px 0' }}>Holerites da Competência ({holeritesFiltrados.length})</h3>
 
             {holeritesFiltrados.length === 0 ? (
@@ -636,232 +1234,11 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* --- MÓDULO R&S --- */}
-      {moduloAtivo === 'recrutamento' && (
-        <div>
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '18px', flexWrap: 'wrap' }}>
-            <button onClick={() => setAbaRS('candidatos')} style={{ padding: '8px 14px', border: 'none', borderBottom: abaRS === 'candidatos' ? '3px solid #0c5e31' : 'none', background: abaRS === 'candidatos' ? '#e8f5e9' : '#f8fafc', color: abaRS === 'candidatos' ? '#0c5e31' : '#64748b', fontWeight: 'bold', cursor: 'pointer', borderRadius: '4px' }}>
-              👥 Candidatos & Validação
-            </button>
-            <button onClick={() => setAbaRS('convites')} style={{ padding: '8px 14px', border: 'none', borderBottom: abaRS === 'convites' ? '3px solid #0c5e31' : 'none', background: abaRS === 'convites' ? '#e8f5e9' : '#f8fafc', color: abaRS === 'convites' ? '#0c5e31' : '#64748b', fontWeight: 'bold', cursor: 'pointer', borderRadius: '4px' }}>
-              📨 Convidar Candidatos (WhatsApp)
-            </button>
-            <button onClick={() => setAbaRS('campos')} style={{ padding: '8px 14px', border: 'none', borderBottom: abaRS === 'campos' ? '3px solid #0c5e31' : 'none', background: abaRS === 'campos' ? '#e8f5e9' : '#f8fafc', color: abaRS === 'campos' ? '#0c5e31' : '#64748b', fontWeight: 'bold', cursor: 'pointer', borderRadius: '4px' }}>
-              📝 Campos Pessoais
-            </button>
-            <button onClick={() => setAbaRS('documentos')} style={{ padding: '8px 14px', border: 'none', borderBottom: abaRS === 'documentos' ? '3px solid #0c5e31' : 'none', background: abaRS === 'documentos' ? '#e8f5e9' : '#f8fafc', color: abaRS === 'documentos' ? '#0c5e31' : '#64748b', fontWeight: 'bold', cursor: 'pointer', borderRadius: '4px' }}>
-              📋 Documentos Exigidos
-            </button>
-          </div>
-
-          {/* Candidatos R&S com Mensagem de Apresentação Preservada */}
-          {abaRS === 'candidatos' && (
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '18px' }}>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  {['Todos', 'Pendentes', 'Aprovados', 'Com Pendência'].map(status => (
-                    <button key={status} onClick={() => setFiltro(status)} style={{ padding: '6px 14px', borderRadius: '20px', border: '1px solid #cbd5e1', background: filtro === status ? '#0c5e31' : '#fff', color: filtro === status ? '#fff' : '#475569', cursor: 'pointer', fontWeight: '500', fontSize: '13px' }}>
-                      {status}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {candidates
-                  .filter(c => filtro === 'Todos' ? true : filtro === 'Pendentes' ? c.status === 'Pendente' : filtro === 'Aprovados' ? c.status === 'Aprovado' : c.status?.includes('Rejeitado'))
-                  .map((c) => {
-                    const badge = c.status === 'Aprovado' ? { bg: '#e8f5e9', color: '#0c5e31' } : c.status?.includes('Rejeitado') ? { bg: '#fee2e2', color: '#b91c1c' } : { bg: '#fef3c7', color: '#b45309' };
-                    const docsEnviados = candidateDocs[c.id] || [];
-                    const dadosExtras = c.custom_data || {};
-
-                    return (
-                      <div key={c.id} style={{ padding: '18px 20px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <strong style={{ fontSize: '18px' }}>{c.full_name}</strong>
-                            <span style={{ backgroundColor: badge.bg, color: badge.color, padding: '3px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold' }}>{c.status}</span>
-                          </div>
-                          
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                            {/* Botão de WhatsApp com a mensagem oficial restaurada */}
-                            <button
-                              onClick={() => {
-                                const fone = extrairTelefone(c);
-                                if (!fone) {
-                                  alert('Telefone não informado pelo candidato.');
-                                  return;
-                                }
-                                const primeiroNome = (c.full_name || 'Candidato').trim().split(' ')[0];
-                                const texto = `Olá ${primeiroNome}, aqui é do setor de Recursos Humanos da Usina Bandeirante (USIBAN).`;
-                                window.open(`https://wa.me/${fone}?text=${encodeURIComponent(texto)}`, '_blank');
-                              }}
-                              style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 10px', background: '#25D366', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
-                            >
-                              📱 WhatsApp
-                            </button>
-                            <button onClick={() => handleAprovar(c)} style={{ padding: '6px 12px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}>Aprovar ✓</button>
-                            <button onClick={() => handleRejeitar(c)} style={{ padding: '6px 12px', background: '#d97706', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12.5px' }}>Pendência ✕</button>
-                            <button onClick={() => handleExcluirCandidato(c)} style={{ padding: '6px 10px', background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>🗑️</button>
-                          </div>
-                        </div>
-
-                        <div style={{ padding: '14px', background: '#f8faf9', borderRadius: '6px', fontSize: '13.5px', border: '1px solid #e2e8f0' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {Object.entries(dadosExtras).map(([k, v]) => (
-                              <div key={k} style={{ borderBottom: '1px dashed #e2e8f0', paddingBottom: '6px' }}><b>{k}:</b> {String(v)}</div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-          )}
-
-          {/* Convites WhatsApp */}
-          {abaRS === 'convites' && (
-            <div>
-              <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
-                <strong style={{ color: '#0c5e31', fontSize: '15px', display: 'block', marginBottom: '6px' }}>💬 Mensagem Padrão do WhatsApp</strong>
-                <textarea rows={3} value={mensagemModelo} onChange={e => setMensagemModelo(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', marginBottom: '24px' }}>
-                <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                  <h3 style={{ marginTop: 0, color: '#0c5e31', fontSize: '16px' }}>+ Convidar Candidato Avulso</h3>
-                  <form onSubmit={async (e) => {
-                    e.preventDefault();
-                    if (!conviteNome || !conviteTelefone) return;
-                    await supabase.from('admission_invites').insert([{ candidate_name: conviteNome.trim(), phone: conviteTelefone.replace(/\D/g, ''), job_title: conviteCargo.trim(), status: 'Pendente' }]);
-                    setConviteNome(''); setConviteTelefone(''); setConviteCargo(''); carregarDados();
-                  }} style={{ display: 'grid', gap: '10px' }}>
-                    <input placeholder="Nome do Candidato" value={conviteNome} onChange={e => setConviteNome(e.target.value)} required style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-                    <input placeholder="WhatsApp com DDD" value={conviteTelefone} onChange={e => setConviteTelefone(e.target.value)} required style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-                    <input placeholder="Cargo Pretendido" value={conviteCargo} onChange={e => setConviteCargo(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-                    <button type="submit" style={{ padding: '10px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Adicionar à Fila</button>
-                  </form>
-                </div>
-
-                <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                  <h3 style={{ marginTop: 0, color: '#003366', fontSize: '16px' }}>📋 Importar Lista em Lote</h3>
-                  <form onSubmit={async (e) => {
-                    e.preventDefault();
-                    const linhas = listaLote.split('\n');
-                    const novos = [];
-                    linhas.forEach(linha => {
-                      const partes = linha.split(/[,;\t]/);
-                      if (partes.length >= 2) {
-                        const n = partes[0].trim();
-                        const t = partes[1].replace(/\D/g, '');
-                        const c = partes[2] ? partes[2].trim() : '';
-                        if (n && t.length >= 10) novos.push({ candidate_name: n, phone: t, job_title: c, status: 'Pendente' });
-                      }
-                    });
-                    if (novos.length > 0) {
-                      await supabase.from('admission_invites').insert(novos);
-                      setListaLote(''); carregarDados(); alert(`${novos.length} adicionados!`);
-                    }
-                  }} style={{ display: 'grid', gap: '10px' }}>
-                    <textarea rows={4} placeholder="Nome, Telefone, Cargo (um por linha)" value={listaLote} onChange={e => setListaLote(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-                    <button type="submit" style={{ padding: '10px', background: '#003366', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Importar Lista</button>
-                  </form>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {invites.map(inv => (
-                  <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
-                    <div><b>{inv.candidate_name}</b> - {inv.phone} ({inv.status})</div>
-                    <button onClick={async () => {
-                      let fone = inv.phone.replace(/\D/g, '');
-                      if (!fone.startsWith('55')) fone = '55' + fone;
-                      const msg = mensagemModelo.replace('{NOME}', inv.candidate_name.split(' ')[0]);
-                      await supabase.from('admission_invites').update({ status: 'Enviado' }).eq('id', inv.id);
-                      carregarDados();
-                      window.open(`https://wa.me/${fone}?text=${encodeURIComponent(msg)}`, '_blank');
-                    }} style={{ padding: '6px 12px', background: '#25D366', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
-                      📱 Enviar WhatsApp
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Campos e Documentos */}
-          {abaRS === 'campos' && (
-            <div>
-              <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
-                <h3 style={{ marginTop: 0, color: '#0c5e31' }}>+ Cadastrar Novo Campo</h3>
-                <form onSubmit={async (e) => {
-                  e.preventDefault();
-                  if (!novoCampoLabel) return;
-                  await supabase.from('required_personal_fields').insert([{ label: novoCampoLabel, field_type: novoCampoTipo, placeholder: novoCampoPlaceholder, is_required: novoCampoObrigatorio, validation_rule: novoCampoValidacao, display_order: requiredFields.length + 1, is_active: true }]);
-                  setNovoCampoLabel(''); carregarDados();
-                }} style={{ display: 'grid', gap: '10px', maxWidth: '500px' }}>
-                  <input placeholder="Pergunta / Rótulo do Campo" value={novoCampoLabel} onChange={e => setNovoCampoLabel(e.target.value)} required style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-                  <select value={novoCampoValidacao} onChange={e => setNovoCampoValidacao(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
-                    <option value="none">Sem validação especial</option>
-                    <option value="fullname">Nome Completo</option>
-                    <option value="cpf">CPF Válido</option>
-                    <option value="phone">WhatsApp 9 Dígitos</option>
-                  </select>
-                  <button type="submit" style={{ padding: '10px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Salvar Campo</button>
-                </form>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {requiredFields.map((f, idx) => (
-                  <div key={f.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
-                    <div><b>{idx + 1}.</b> {f.label} ({f.validation_rule})</div>
-                    <button onClick={async () => { await supabase.from('required_personal_fields').update({ is_active: false }).eq('id', f.id); carregarDados(); }} style={{ padding: '4px 8px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Desativar</button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {abaRS === 'documentos' && (
-            <div>
-              <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
-                <h3 style={{ marginTop: 0, color: '#0c5e31' }}>+ Cadastrar Novo Documento</h3>
-                <form onSubmit={async (e) => {
-                  e.preventDefault();
-                  if (!novoDocTitulo) return;
-                  await supabase.from('required_documents').insert([{ title: novoDocTitulo, description: novoDocDesc, is_required: novoDocObrigatorio, is_active: true }]);
-                  setNovoDocTitulo(''); setNovoDocDesc(''); carregarDados();
-                }} style={{ display: 'grid', gap: '10px', maxWidth: '500px' }}>
-                  <input placeholder="Título do Documento" value={novoDocTitulo} onChange={e => setNovoDocTitulo(e.target.value)} required style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-                  <input placeholder="Instruções" value={novoDocDesc} onChange={e => setNovoDocDesc(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-                  <button type="submit" style={{ padding: '10px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Salvar Documento</button>
-                </form>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {requiredDocs.map(d => (
-                  <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
-                    <div><b>{d.title}</b> - {d.description}</div>
-                    <button onClick={async () => { await supabase.from('required_documents').update({ is_active: false }).eq('id', d.id); carregarDados(); }} style={{ padding: '4px 8px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Desativar</button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* --- MÓDULO USUÁRIOS (ADMIN) --- */}
+      {/* --- MÓDULO 3: GESTÃO DE USUÁRIOS (ADMIN) --- */}
       {moduloAtivo === 'usuarios' && usuarioLogado.role === 'admin' && (
         <div style={{ background: '#fff', padding: '22px', borderRadius: '10px', border: '1px solid #cbd5e1' }}>
           <h3 style={{ marginTop: 0, color: '#334155' }}>+ Cadastrar Novo Operador</h3>
-          <form onSubmit={async (e) => {
-            e.preventDefault();
-            if (!novoUserNome || !novoUserEmail || !novoUserSenha) return;
-            await supabase.from('system_users').insert([{ name: novoUserNome.trim(), email: novoUserEmail.trim().toLowerCase(), password: novoUserSenha, role: novoUserRole, is_active: true }]);
-            setNovoUserNome(''); setNovoUserEmail(''); setNovoUserSenha(''); carregarDados(); alert('Usuário criado com sucesso!');
-          }} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', alignItems: 'end' }}>
+          <form onSubmit={handleCriarUsuario} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', alignItems: 'end' }}>
             <input placeholder="Nome Completo" value={novoUserNome} onChange={e => setNovoUserNome(e.target.value)} required style={{ padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
             <input type="email" placeholder="E-mail" value={novoUserEmail} onChange={e => setNovoUserEmail(e.target.value)} required style={{ padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
             <input type="password" placeholder="Senha" value={novoUserSenha} onChange={e => setNovoUserSenha(e.target.value)} required style={{ padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
@@ -878,9 +1255,12 @@ export default function AdminPage() {
             {systemUsers.map(u => (
               <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
                 <div><b>{u.name}</b> ({u.email}) - Perfil: {u.role}</div>
-                {u.email !== 'admin@usiban.com.br' && (
-                  <button onClick={async () => { if (confirm('Excluir usuário?')) { await supabase.from('system_users').delete().eq('id', u.id); carregarDados(); } }} style={{ padding: '4px 8px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Excluir</button>
-                )}
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button onClick={() => handleAlternarStatusUsuario(u.id, u.is_active)} style={{ padding: '4px 8px', background: u.is_active ? '#fef3c7' : '#e8f5e9', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>{u.is_active ? 'Desativar' : 'Ativar'}</button>
+                  {u.email !== 'admin@usiban.com.br' && (
+                    <button onClick={() => handleExcluirUsuario(u)} style={{ padding: '4px 8px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Excluir</button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
