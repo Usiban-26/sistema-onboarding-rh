@@ -536,7 +536,7 @@ export default function AdminPage() {
     carregarDados();
   }
 
-  // --- MÓDULO DP: IMPORTAÇÃO E PROCESSAMENTO DO SENIOR HCM ---
+  // --- FAIXA DO SENIOR: FATIAMENTO COM CONFIRMAÇÃO DO OPERADOR ---
   async function handleUploadSeniorHCM(e) {
     e.preventDefault();
     if (!arquivoSenior) {
@@ -544,12 +544,19 @@ export default function AdminPage() {
       return;
     }
     if (!competenciaSelecionada) {
-      alert('Selecione uma competência ativa.');
+      alert('Selecione uma competência ativa antes de importar.');
       return;
     }
 
+    // Alerta de confirmação humana obrigatória
+    const confirma = confirm(
+      `⚠️ CONFERÊNCIA OBRIGATÓRIA DE COMPETÊNCIA ⚠️\n\nVocê está prestes a importar os holerites para a competência:\n👉 "${competenciaSelecionada}"\n\nArquivo selecionado: "${arquivoSenior.name}"\n\nVocê confirma que este arquivo pertence exatamente a esta competência?`
+    );
+
+    if (!confirma) return;
+
     setProcessandoPdf(true);
-    setStatusProcessamento('Validando competência e separando páginas...');
+    setStatusProcessamento('Fatiando páginas e cadastrando colaboradores...');
 
     try {
       const formData = new FormData();
@@ -569,8 +576,9 @@ export default function AdminPage() {
         const inputFile = document.getElementById('input-folha-senior');
         if (inputFile) inputFile.value = '';
         carregarDados();
+        alert(`✅ Sucesso!\n${resultado.message}`);
       } else {
-        setStatusProcessamento(`⚠️ Atenção: ${resultado.error}`);
+        setStatusProcessamento(`⚠️ Erro: ${resultado.error}`);
         alert(resultado.error);
       }
     } catch (err) {
@@ -1132,7 +1140,7 @@ export default function AdminPage() {
                   O sistema confere se o PDF pertence à competência <b>{competenciaSelecionada}</b> e atualiza sem duplicar:
                 </p>
 
-                <form onSubmit={handleUploadSeniorHCM} style={{ display: 'grid', gap: '10px' }}>
+               <form onSubmit={handleUploadSeniorHCM} style={{ display: 'grid', gap: '10px' }}>
                   <input 
                     id="input-folha-senior"
                     type="file" 
@@ -1140,12 +1148,18 @@ export default function AdminPage() {
                     onChange={e => setArquivoSenior(e.target.files[0])}
                     style={{ padding: '8px', background: '#fff', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }} 
                   />
+                
+                  {/* Aviso em amarelo para conferência do operador */}
+                  <div style={{ padding: '10px 12px', background: '#fef3c7', borderLeft: '4px solid #b45309', borderRadius: '4px', fontSize: '12px', color: '#92400e', lineHeight: '1.4' }}>
+                    <b>⚠️ Atenção Operador:</b> Confira se a competência ativa selecionada (<b>{competenciaSelecionada}</b>) confere exatamente com o mês/ano impresso no arquivo que você está enviando.
+                  </div>
+                
                   <button 
                     type="submit" 
                     disabled={processandoPdf}
                     style={{ padding: '11px', background: processandoPdf ? '#64748b' : '#003366', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: processandoPdf ? 'not-allowed' : 'pointer', fontSize: '13.5px' }}
                   >
-                    {processandoPdf ? 'Validando e Fatiando Páginas...' : '⚡ Fatiar e Importar Folha'}
+                    {processandoPdf ? 'Fatiando Páginas e Salvando...' : '⚡ Fatiar e Importar Folha'}
                   </button>
                 </form>
 
