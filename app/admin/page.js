@@ -615,6 +615,7 @@ export default function AdminPage() {
 
   async function handleDispararHoleriteWhatsApp(holerite) {
     let fone = obterTelefonePorCpf(holerite.cpf);
+
     if (!fone || fone.length < 10) {
       const foneInformado = prompt(`Informe o WhatsApp com DDD para o colaborador (CPF: ${holerite.cpf}):`);
       if (!foneInformado) return;
@@ -622,8 +623,14 @@ export default function AdminPage() {
       if (!fone.startsWith('55') && fone.length <= 11) fone = '55' + fone;
     }
 
-    const primeiroNome = (holerite.employee_name || 'Colaborador').split(' ')[0];
-    const mensagem = `Olá ${primeiroNome}, o seu Demonstrativo de Pagamento referente à competência *${holerite.competence}* da Usina Bandeirante (USIBAN) já está disponível.\n\n📄 *Acesse o seu documento oficial no link abaixo:*\n${holerite.file_url}\n\nEm caso de dúvidas sobre a folha, entre em contato com o Departamento Pessoal.`;
+    // Limpa o nome para nunca enviar "Olá Demonstrativo"
+    let nomePuro = (holerite.employee_name || '').trim();
+    if (nomePuro.toLowerCase().includes('demonstrativo') || !nomePuro) {
+      nomePuro = 'Colaborador(a)';
+    }
+    const primeiroNome = nomePuro.split(' ')[0];
+
+    const mensagem = `Olá ${primeiroNome}, o seu Demonstrativo de Pagamento referente à competência *${holerite.competence}* da Usina Bandeirante (USIBAN) já está disponível.\n\n📄 *Acesse o documento oficial no link abaixo:*\n${holerite.file_url}\n\nEm caso de dúvidas sobre a folha, entre em contato com o Departamento Pessoal.`;
 
     await supabase.from('employee_payrolls').update({ status: 'Enviado', channel: 'WhatsApp' }).eq('id', holerite.id);
     carregarDados();
