@@ -8,7 +8,77 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 );
 
-export async function POST(request) {
+// Mapeamento dos meses para reconhecimento do Senior HCM
+const MESES = {
+  '01': ['01', 'janeiro', 'jan'],
+  '02': ['02', 'fevereiro', 'fev'],
+  '03': ['03', 'março', 'marco', 'mar'],
+  '04': ['04', 'abril', 'abr'],
+  '05': ['05', 'maio', 'mai'],
+  '06': ['06', 'junho', 'jun'],
+  '07': ['07', 'julho', 'jul'],
+  '08': ['08', 'agosto', 'ago'],
+  '09': ['09', 'setembro', 'set'],
+  '10': ['10', 'outubro', 'out'],
+  '11': ['11', 'novembro', 'nov'],
+  '12': ['12', 'dezembro', 'dez']
+};
+
+function validarCompetenciaNoTexto(texto, competenciaEsperada) {
+  const textoLimpo = texto.toLowerCase().replace(/\s+/g, ' ');
+
+  // Caso 1: Folha Mensal (Ex: "10/2026" ou "09/2026")
+  if (competenciaEsperada.includes('/')) {
+    const [mes, ano] = competenciaEsperada.split('/');
+    const aliasesMes = MESES[mes] || [mes];
+
+    // Verifica se o ano selecionado existe no texto do cabeçalho
+    const temAno = textoLimpo.includes(ano);
+    if (!temAno) {
+      return { valido: false, motivo: `O arquivo não menciona o ano ${ano}.` };
+    }
+
+    // Verifica se algum termo referente ao mês esperado está presente
+    const temMes = aliasesMes.some(m => {
+      // Ex: "10/2026", "10-2026", "outubro/2026", "out/2026", "mês: 10"
+      const regex1 = new RegExp(`\\b${m}\\s*[/.-]?\\s*${ano}\\b`, 'i');
+      const regex2 = new RegExp(`(referência|competência|período|mês|folha)[^\\n\\r]{0,30}\\b${m}\\b`, 'i');
+      return regex1.test(textoLimpo) || regex2.test(textoLimpo);
+    });
+
+    if (!temMes) {
+      return {
+        valido: false,
+        motivo: `O arquivo PDF não corresponde ao mês ${mes}/${ano}. Verifique se selecionou o relatório correto.`
+      };
+    }
+
+    return { valido: true };
+  }
+
+  // Caso 2: 13º Salário (Ex: "13_1_2026" ou "13_2_2026")
+  if (competenciaEsperada.startsWith('13')) {
+    const partes = competenciaEsperada.split('_');
+    const parcela = partes[1] || '1';
+    const ano = partes[2] || '';
+
+    const tem13 = textoLimpo.includes('13') || textoLimpo.includes('décimo') || textoLimpo.includes('decimo');
+    const temAno = ano ? textoLimpo.includes(ano) : true;
+
+    if (!tem13 || !temAno) {
+      return {
+        valido: false,
+        motivo: `O arquivo enviado não parece ser do 13º Salário (${parcela}ª Parcela) de ${ano}.`
+      };
+    }
+
+    return { valido: true };
+  }
+
+  return { valido: true };
+}
+
+export default async function POST(request) {
   try {
     const formData = await request.formData();
     const file = formData.get('file');
@@ -29,7 +99,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'O PDF enviado está vazio.' }, { status: 400 });
     }
 
-    // 1. Validação prévia da competência na 1ª página
+    // 1. Validação da Competência na Primeira Página
     const firstPageDoc = await PDFDocument.create();
     const [firstPage] = await firstPageDoc.copyPages(originalPdfDoc, [0]);
     firstPageDoc.addPage(firstPage);
@@ -37,23 +107,17 @@ export async function POST(request) {
     const firstParsed = await pdfParse(Buffer.from(firstPageBytes));
     const firstText = firstParsed.text;
 
-    // Normaliza a checagem (Ex: "10/2026" ou "13º")
-    const compParts = competence.split('/');
-    if (compParts.length === 2) {
-      const mes = compParts[0];
-      const ano = compParts[1];
-      const padraoSenior = new RegExp(`(${mes}\\s*[/.-]?\\s*${ano}|${mes}\\s*de\\s*${ano})`, 'i');
-      if (!padraoSenior.test(firstText) && !firstText.includes(ano)) {
-        return NextResponse.json({
-          error: `O arquivo enviado parece não pertencer à competência ${competence}. Verifique se selecionou o arquivo correto da folha.`
-        }, { status: 400 });
-      }
+    const checagem = validarCompetenciaNoTexto(firstText, competence);
+    if (!checagem.valido) {
+      return NextResponse.json({
+        error: `DIVERGÊNCIA DE COMPETÊNCIA: ${checagem.motivo}`
+      }, { status: 400 });
     }
 
     const processados = [];
-    const duplicadosIgnorados = [];
+    const atualizados = [];
 
-    // 2. Fatiamento e gravação página por página
+    // 2. Fatiamento e Salvamento Seguro Página por Página
     for (let i = 0; i < totalPages; i++) {
       const singlePageDoc = await PDFDocument.create();
       const [copiedPage] = await singlePageDoc.copyPages(originalPdfDoc, [i]);
@@ -67,9 +131,7 @@ export async function POST(request) {
       const cpfMatch = pageText.match(/\d{3}\.\d{3}\.\d{3}-\d{2}/) || pageText.match(/(?:\D|^)(\d{11})(?:\D|$)/);
       const rawCpf = cpfMatch ? cpfMatch[0].replace(/\D/g, '') : null;
 
-      if (!rawCpf) {
-        continue; // Ignora páginas sem CPF
-      }
+      if (!rawCpf) continue;
 
       // Matrícula Senior
       const regMatch = pageText.match(/(?:Cadastro|Empregado|Matrícula):\s*(\d+)/i);
@@ -85,7 +147,7 @@ export async function POST(request) {
         }
       }
 
-      // 3. Validação anti-duplicação: verifica se já existe
+      // Validação Anti-Duplicidade (Upsert)
       const { data: existente } = await supabase
         .from('employee_payrolls')
         .select('id')
@@ -96,7 +158,6 @@ export async function POST(request) {
       const safeCompetence = competence.replace('/', '-');
       const fileName = `${safeCompetence}/${rawCpf}.pdf`;
 
-      // Upload no storage (upsert)
       await supabase.storage
         .from('holerites')
         .upload(fileName, singlePdfBytes, {
@@ -109,20 +170,18 @@ export async function POST(request) {
         .getPublicUrl(fileName);
 
       if (existente) {
-        // Atualiza o existente para não duplicar linha
         await supabase
           .from('employee_payrolls')
           .update({
             employee_name: nomeEncontrado,
             registration_number: matricula,
             file_url: publicUrlData.publicUrl,
-            status: 'Pendente' // reseta status ao reimportar
+            status: 'Pendente'
           })
           .eq('id', existente.id);
 
-        duplicadosIgnorados.push(rawCpf);
+        atualizados.push(rawCpf);
       } else {
-        // Insere novo
         const { data: dbData } = await supabase
           .from('employee_payrolls')
           .insert([
@@ -146,11 +205,12 @@ export async function POST(request) {
       success: true,
       totalPages,
       processedCount: processados.length,
-      updatedCount: duplicadosIgnorados.length,
-      message: `${processados.length} novos importados e ${duplicadosIgnorados.length} atualizados (sem duplicidades).`
+      updatedCount: atualizados.length,
+      message: `${processados.length} novos holerites importados e ${atualizados.length} atualizados com sucesso.`
     });
   } catch (error) {
     console.error('Erro na rota de split:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+export { POST };
