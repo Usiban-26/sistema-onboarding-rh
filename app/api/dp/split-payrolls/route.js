@@ -170,4 +170,34 @@ export async function POST(request) {
 
         atualizados.push(rawCpf);
       } else {
-        const { data:
+        const { data: dbData } = await supabase
+          .from('employee_payrolls')
+          .insert([
+            {
+              employee_name: nomeEncontrado,
+              cpf: rawCpf,
+              registration_number: matricula,
+              competence: competence,
+              file_url: publicUrlData.publicUrl,
+              status: 'Pendente'
+            }
+          ])
+          .select()
+          .single();
+
+        if (dbData) processados.push(dbData);
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      totalPages,
+      processedCount: processados.length,
+      updatedCount: atualizados.length,
+      message: `${processados.length} novos holerites importados e ${atualizados.length} atualizados com sucesso.`
+    });
+  } catch (error) {
+    console.error('Erro ao processar PDF do Senior HCM:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
