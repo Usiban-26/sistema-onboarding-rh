@@ -3,13 +3,19 @@ import { PDFDocument } from 'pdf-lib';
 import pdfParse from 'pdf-parse';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-);
+// Evita que o Next.js tente pré-compilar esta rota como estática
+export const dynamic = 'force-dynamic';
+
+function getSupabaseClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
+  return createClient(url, key);
+}
 
 export async function POST(request) {
   try {
+    const supabase = getSupabaseClient();
+
     const formData = await request.formData();
     const file = formData.get('file');
     const competence = formData.get('competence') || '';
@@ -42,7 +48,7 @@ export async function POST(request) {
       const parsedText = await pdfParse(Buffer.from(singlePdfBytes));
       const pageText = parsedText.text;
 
-      // 1. Extração do CPF (ex: "portador do CPF 074.940.539-21" ou genérico)
+      // 1. Extração do CPF no rodapé
       const cpfMatch = pageText.match(/(?:CPF|cpf)[^\d]*(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/i)
                     || pageText.match(/\d{3}\.\d{3}\.\d{3}-\d{2}/)
                     || pageText.match(/(?:\D|^)(\d{11})(?:\D|$)/);
@@ -50,24 +56,51 @@ export async function POST(request) {
       const rawCpf = cpfMatch ? (cpfMatch[1] || cpfMatch[0]).replace(/\D/g, '') : null;
 
       if (!rawCpf || rawCpf.length !== 11) {
-        continue; // Ignora páginas sem CPF
+        continue;
       }
 
       // 2. Extração de Matrícula (CADASTRO)
-      const regMatch = pageText.match(/CADASTRO[^\d]*([\d.]+)/i)
-                    || pageText.match(/(?:Matrícula|Cadastro|Empregado):?\s*([\d.]+)/i);
-      const matricula = regMatch ? regMatch[1].trim() : null;
+      let matricula = null;
+      const regMatch = pageText.match(/\b(1\.\d{6})\b/) 
+                    || pageText.match(/CADASTRO[^\d\n\r]*(\d[\d.]{4,10})/i);
+      if (regMatch) {
+        matricula = regMatch[1].trim();
+      }
 
       // 3. Extração do Nome do Colaborador
       let nomeEncontrado = 'Colaborador';
-      const nomeMatch = pageText.match(/NOME[^\n\r]*[\r\n]+\s*(?:[\d.]+\s+)?([A-ZÀ-Ú\s]{4,60})/i)
-                     || pageText.match(/NOME\s+([A-ZÀ-Ú\s]{4,60})/i);
+      const blocoNomeMatch = pageText.match(/NOME[^\n\r]*[\r\n\s]+([^\r\n]+)/i);
 
-      if (nomeMatch && nomeMatch[1]) {
-        nomeEncontrado = nomeMatch[1].split(/\s{2,}|\n|\r|DATA/)[0].trim();
+      if (blocoNomeMatch && blocoNomeMatch[1]) {
+        let linhaBruta = blocoNomeMatch[1];
+        linhaBruta = linhaBruta.replace(/^1\.\d{6}\s*/, '');
+        linhaBruta = linhaBruta.replace(/\d{1,2}\/\d{1,2}\/\d{2,4}.*$/, '');
+        linhaBruta = linhaBruta.replace(/\b(DATA|ADMISSAO|ADMISSÃO|CARGO|LOCAL)\b.*$/i, '');
+        linhaBruta = linhaBruta.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ\s]/g, '').trim();
+
+        if (linhaBruta.length >= 3 && !linhaBruta.toLowerCase().includes('demonstrativo')) {
+          nomeEncontrado = linhaBruta;
+        }
       }
 
-      // 4. Prevenção de duplicidade: checa se já existe registro com mesmo CPF e competência
+      // Fallback para Nome
+      if (nomeEncontrado === 'Colaborador') {
+        const linhas = pageText.split('\n').map(l => l.trim()).filter(Boolean);
+        for (let l = 0; l < Math.min(linhas.length, 12); l++) {
+          const linha = linhas[l];
+          if (/^[A-ZÀ-Ú\s]{6,50}$/.test(linha) && 
+              !linha.includes('ACUCAR') && 
+              !linha.includes('BANDEIRANTES') && 
+              !linha.includes('DEMONSTRATIVO') && 
+              !linha.includes('SALARIO') &&
+              !linha.includes('CARGO')) {
+            nomeEncontrado = linha;
+            break;
+          }
+        }
+      }
+
+      // 4. Prevenção de duplicidade (Upsert)
       const { data: existente } = await supabase
         .from('employee_payrolls')
         .select('id')
@@ -78,7 +111,6 @@ export async function POST(request) {
       const safeCompetence = competence.replace('/', '-');
       const fileName = `${safeCompetence}/${rawCpf}.pdf`;
 
-      // Upload no storage (upsert)
       await supabase.storage
         .from('holerites')
         .upload(fileName, singlePdfBytes, {
@@ -91,7 +123,6 @@ export async function POST(request) {
         .getPublicUrl(fileName);
 
       if (existente) {
-        // Atualiza mantendo o mesmo ID
         await supabase
           .from('employee_payrolls')
           .update({
@@ -104,7 +135,6 @@ export async function POST(request) {
 
         atualizados.push(rawCpf);
       } else {
-        // Cria novo
         const { data: dbData } = await supabase
           .from('employee_payrolls')
           .insert([
