@@ -3,92 +3,13 @@ import { PDFDocument } from 'pdf-lib';
 import pdfParse from 'pdf-parse';
 import { createClient } from '@supabase/supabase-js';
 
-export const dynamic = 'force-dynamic';
-
-const PALAVRAS_RESERVADAS = [
-  'DEMONSTRATIVO', 'PAGAMENTO', 'SALARIO', 'SALÁRIO', 'EMPRESA', 'ACUCAR', 'AÇÚCAR',
-  'ALCOOL', 'ÁLCOOL', 'BANDEIRANTES', 'CADASTRO', 'NOME', 'DATA', 'ADMISSAO', 'ADMISSÃO',
-  'CARGO', 'LOCAL', 'REFERENCIA', 'REFERÊNCIA', 'CREDITOS', 'CRÉDITOS', 'DESCONTOS',
-  'DESCRICAO', 'DESCRIÇÃO', 'VALOR', 'LIQUIDO', 'LÍQUIDO', 'BASE', 'INSS', 'FGTS', 'IRRF', 'CNPJ'
-];
-
-function limparNomeExtraido(textoBruto) {
-  if (!textoBruto) return '';
-  const limpo = textoBruto
-    .replace(/[^A-Za-zÀ-ÖØ-öø-ÿ\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  const palavras = limpo.split(' ').filter(p => {
-    const pUpper = p.toUpperCase();
-    return pUpper.length > 1 && !PALAVRAS_RESERVADAS.includes(pUpper);
-  });
-
-  return palavras.join(' ').trim();
-}
-
-function extrairDadosSeniorHCM(pageText) {
-  let matricula = null;
-  let nomeEncontrado = 'Colaborador';
-
-  const flatText = pageText.replace(/[\r\n]+/g, ' ');
-
-  // Estratégia 1: Matrícula com ponto (ex: 1.015344 ou 101.015392) + Nome + Data DD/MM/AAAA
-  const r1 = new RegExp('(\\d{1,5}\\.\\d{4,8})\\s*([A-ZÀ-Ú][A-ZÀ-Ú\\s]{3,60}?)\\s*(\\d{2}/\\d{2}/\\d{4})');
-  const m1 = flatText.match(r1);
-
-  if (m1) {
-    matricula = m1[1].trim();
-    const nomeLimpo = limparNomeExtraido(m1[2]);
-    if (nomeLimpo.length >= 3) {
-      return { matricula, nomeEncontrado: nomeLimpo };
-    }
-  }
-
-  // Estratégia 2: Letras maiúsculas imediatamente antes da Data de Admissão (DD/MM/AAAA)
-  const r2 = new RegExp('([0-9.\\-_]{3,12})?\\s*([A-ZÀ-Ú][A-ZÀ-Ú\\s]{4,60}?)\\s*\\d{2}/\\d{2}/\\d{4}', 'g');
-  let m2;
-  while ((m2 = r2.exec(flatText)) !== null) {
-    const possivelMat = m2[1] ? m2[1].trim() : null;
-    const possivelNome = limparNomeExtraido(m2[2]);
-
-    if (possivelNome.length >= 4) {
-      if (possivelMat) matricula = possivelMat;
-      nomeEncontrado = possivelNome;
-      break;
-    }
-  }
-
-  // Estratégia 3: Busca direta pelo padrão de matrícula pontuada + Nome
-  if (nomeEncontrado === 'Colaborador' || !matricula) {
-    const r3 = new RegExp('\\b(\\d{1,4}\\.\\d{5,7})\\s*([A-ZÀ-Ú][A-ZÀ-Ú\\s]{4,55})');
-    const m3 = flatText.match(r3);
-    if (m3) {
-      matricula = m3[1].trim();
-      const nomeLimpo = limparNomeExtraido(m3[2]);
-      if (nomeLimpo.length >= 4) {
-        nomeEncontrado = nomeLimpo;
-      }
-    }
-  }
-
-  return { matricula, nomeEncontrado };
-}
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder-url.supabase.co',
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key'
+);
 
 export async function POST(request) {
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseKey) {
-      return NextResponse.json(
-        { error: 'Variáveis de ambiente do Supabase não configuradas.' },
-        { status: 500 }
-      );
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
     const formData = await request.formData();
     const file = formData.get('file');
     const competence = formData.get('competence') || '';
@@ -111,6 +32,7 @@ export async function POST(request) {
     const processados = [];
     const atualizados = [];
 
+    // Fatiamento direto página por página
     for (let i = 0; i < totalPages; i++) {
       const singlePageDoc = await PDFDocument.create();
       const [copiedPage] = await singlePageDoc.copyPages(originalPdfDoc, [i]);
@@ -120,22 +42,59 @@ export async function POST(request) {
       const parsedText = await pdfParse(Buffer.from(singlePdfBytes));
       const pageText = parsedText.text;
 
-      // 1. Extração segura do CPF
-      const rCpf1 = new RegExp('(?:CPF|cpf)[^\\d]*(\\d{3}\\.?\\d{3}\\.?\\d{3}-?\\d{2})', 'i');
-      const rCpf2 = new RegExp('\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}');
-      const rCpf3 = new RegExp('(?:\\D|^)(\\d{11})(?:\\D|$)');
+      // 1. Extração do CPF
+      const cpfMatch = pageText.match(/(?:CPF|cpf)[^\d]*(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/i)
+                    || pageText.match(/\d{3}\.\d{3}\.\d{3}-\d{2}/)
+                    || pageText.match(/(?:\D|^)(\d{11})(?:\D|$)/);
 
-      const cpfMatch = pageText.match(rCpf1) || pageText.match(rCpf2) || pageText.match(rCpf3);
       const rawCpf = cpfMatch ? (cpfMatch[1] || cpfMatch[0]).replace(/\D/g, '') : null;
 
       if (!rawCpf || rawCpf.length !== 11) {
         continue;
       }
 
-      // 2. Extração de Matrícula e Nome
-      const { matricula, nomeEncontrado } = extrairDadosSeniorHCM(pageText);
+      // 2. Extração de Matrícula (CADASTRO)
+      let matricula = null;
+      const regMatch = pageText.match(/\b(1\.\d{6})\b/) 
+                    || pageText.match(/CADASTRO[^\d\n\r]*(\d[\d.]{4,10})/i);
+      if (regMatch) {
+        matricula = regMatch[1].trim();
+      }
 
-      // 3. Prevenção de duplicidade (Upsert)
+      // 3. Extração do Nome do Colaborador
+      let nomeEncontrado = 'Colaborador';
+      const blocoNomeMatch = pageText.match(/NOME[^\n\r]*[\r\n\s]+([^\r\n]+)/i);
+
+      if (blocoNomeMatch && blocoNomeMatch[1]) {
+        let linhaBruta = blocoNomeMatch[1];
+        linhaBruta = linhaBruta.replace(/^1\.\d{6}\s*/, '');
+        linhaBruta = linhaBruta.replace(/\d{1,2}\/\d{1,2}\/\d{2,4}.*$/, '');
+        linhaBruta = linhaBruta.replace(/\b(DATA|ADMISSAO|ADMISSÃO|CARGO|LOCAL)\b.*$/i, '');
+        linhaBruta = linhaBruta.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ\s]/g, '').trim();
+
+        if (linhaBruta.length >= 3 && !linhaBruta.toLowerCase().includes('demonstrativo')) {
+          nomeEncontrado = linhaBruta;
+        }
+      }
+
+      // Fallback
+      if (nomeEncontrado === 'Colaborador') {
+        const linhas = pageText.split('\n').map(l => l.trim()).filter(Boolean);
+        for (let l = 0; l < Math.min(linhas.length, 12); l++) {
+          const linha = linhas[l];
+          if (/^[A-ZÀ-Ú\s]{6,50}$/.test(linha) && 
+              !linha.includes('ACUCAR') && 
+              !linha.includes('BANDEIRANTES') && 
+              !linha.includes('DEMONSTRATIVO') && 
+              !linha.includes('SALARIO') &&
+              !linha.includes('CARGO')) {
+            nomeEncontrado = linha;
+            break;
+          }
+        }
+      }
+
+      // 4. Prevenção de duplicidade (Upsert)
       const { data: existente } = await supabase
         .from('employee_payrolls')
         .select('id')
