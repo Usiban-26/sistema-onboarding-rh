@@ -42,7 +42,7 @@ export async function POST(request) {
       const parsedText = await pdfParse(Buffer.from(singlePdfBytes));
       const pageText = parsedText.text;
 
-      // 1. Extração do CPF no rodapé
+      // 1. Extração do CPF no rodapé ("portador do CPF 074.940.539-21")
       const cpfMatch = pageText.match(/(?:CPF|cpf)[^\d]*(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/i)
                     || pageText.match(/\d{3}\.\d{3}\.\d{3}-\d{2}/)
                     || pageText.match(/(?:\D|^)(\d{11})(?:\D|$)/);
@@ -53,51 +53,58 @@ export async function POST(request) {
         continue; // Ignora páginas sem CPF identificado
       }
 
-      // 2. Extração Flexível de Matrícula (qualquer quantidade de dígitos/pontos)
+      // 2. Extração Precisa e Universal de Matrícula e Nome (Padrão Senior HCM)
       let matricula = null;
-      // Procura número que vem imediatamente após a palavra CADASTRO ou EMPREGADO
-      const regMatch = pageText.match(/CADASTRO[^\d\n\r]*([0-9][0-9.\-_]{1,15})/i)
-                    || pageText.match(/(?:Empregado|Matr[íi]cula)[^\d\n\r]*([0-9][0-9.\-_]{1,15})/i);
-      
-      if (regMatch) {
-        matricula = regMatch[1].trim();
-      }
-
-      // 3. Extração Direta do Nome Ancorada nos Campos Vizinhos
       let nomeEncontrado = 'Colaborador';
 
-      // Pega todo o texto situado entre "NOME" e "DATA ADMISSÃO" ou "CARGO"
-      const matchBlocoNome = pageText.match(/\bNOME\b[:\s\r\n]+([\s\S]*?)(?=\bDATA\s*ADMISS[AÃ]O\b|\bCARGO\b|\bLOCAL\b|$)/i);
+      // Divide o texto do PDF linha a linha
+      const linhas = pageText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
 
-      if (matchBlocoNome && matchBlocoNome[1]) {
-        let textoExtraido = matchBlocoNome[1].trim();
+      // Localiza o índice da linha que contém a palavra CARGO
+      const indexCargo = linhas.findIndex(l => /^(CARGO|LOCAL)\b/i.test(l) || l.includes('CARGO '));
 
-        // Se a matrícula veio grudada no início do bloco de nome, remove os números iniciais
-        textoExtraido = textoExtraido.replace(/^[0-9.\-_]+\s*/, '');
+      if (indexCargo > 0) {
+        // A linha imediatamente anterior ao CARGO contém: [MATRÍCULA] [NOME] [DATA ADMISSÃO]
+        const linhaDados = linhas[indexCargo - 1];
 
-        // Remove eventuais datas completas que tenham sobrado (ex: 21/05/2026)
-        textoExtraido = textoExtraido.replace(/\d{1,2}\/\d{1,2}\/\d{2,4}.*$/, '');
+        // Expressão: captura o primeiro bloco (matrícula), o nome no meio e a data opcional no final
+        const matchDados = linhaDados.match(/^([0-9.\-_]{1,15})\s+([A-Za-zÀ-ÖØ-öø-ÿ\s]{3,60}?)(?:\s+\d{1,2}\/\d{1,2}\/\d{2,4})?$/);
 
-        // Remove quebras de linha e palavras de controle do cabeçalho
-        textoExtraido = textoExtraido
-          .replace(/^(EMPRESA|CADASTRO)\s*/i, '')
-          .replace(/[\r\n]+/g, ' ')
-          .replace(/\s{2,}/g, ' ')
-          .trim();
-
-        // Garante que é um nome válido e não um título do sistema
-        if (textoExtraido.length >= 3 && 
-            !textoExtraido.toLowerCase().includes('demonstrativo') && 
-            !textoExtraido.toLowerCase().includes('empresa')) {
-          nomeEncontrado = textoExtraido;
+        if (matchDados) {
+          matricula = matchDados[1].trim();
+          const nomeCandidato = matchDados[2].trim();
+          if (nomeCandidato && !nomeCandidato.toLowerCase().includes('empresa') && !nomeCandidato.toLowerCase().includes('cadastro')) {
+            nomeEncontrado = nomeCandidato;
+          }
+        } else {
+          // Caso a linha não termine em data, isola tirando o primeiro número (matrícula)
+          const partes = linhaDados.split(/\s{2,}|\t/);
+          if (partes.length >= 2) {
+            matricula = partes[0].replace(/[^\d.\-_]/g, '').trim();
+            nomeEncontrado = partes[1].replace(/\d{1,2}\/\d{1,2}\/\d{2,4}.*$/, '').trim();
+          } else {
+            // Separação por espaço simples: primeiro termo = matrícula
+            const tokens = linhaDados.split(' ');
+            if (tokens.length >= 2 && /^[0-9.\-_]+$/.test(tokens[0])) {
+              matricula = tokens[0];
+              const restoSemData = tokens.slice(1).join(' ').replace(/\d{1,2}\/\d{1,2}\/\d{2,4}.*$/, '').trim();
+              if (restoSemData.length >= 3) {
+                nomeEncontrado = restoSemData;
+              }
+            }
+          }
         }
       }
 
-      // Fallback: se ainda estiver como "Colaborador", procura linha de texto após CADASTRO
-      if (nomeEncontrado === 'Colaborador') {
-        const matchLinha = pageText.match(/CADASTRO\s+[0-9.\-_]+\s+([A-ZÀ-Ú\s]{3,60}?)(?=\s+\d{1,2}\/\d{1,2}\/\d{2,4}|\s+CARGO|$)/i);
-        if (matchLinha && matchLinha[1]) {
-          nomeEncontrado = matchLinha[1].trim();
+      // Fallback de segurança se indexCargo não tiver sido localizado
+      if (nomeEncontrado === 'Colaborador' || !matricula) {
+        for (const l of linhas) {
+          const matchLinha = l.match(/^([0-9][0-9.\-_]{2,14})\s+([A-Za-zÀ-ÖØ-öø-ÿ\s]{3,50})/);
+          if (matchLinha && !l.includes('ACUCAR') && !l.includes('BANDEIRANTES') && !l.includes('DEMONSTRATIVO')) {
+            matricula = matchLinha[1].trim();
+            nomeEncontrado = matchLinha[2].replace(/\d{1,2}\/\d{1,2}\/\d{2,4}.*$/, '').trim();
+            break;
+          }
         }
       }
 
