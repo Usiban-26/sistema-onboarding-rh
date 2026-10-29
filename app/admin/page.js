@@ -1,10 +1,13 @@
 'use client';
+export const dynamic = 'force-dynamic';
+
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
+// Fallback seguro para evitar falha no build estático da Vercel
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co',
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key'
 );
 
 const LINK_OFICIAL_PORTAL = 'https://sistema-onboarding-rh-4mj4.vercel.app/';
@@ -132,7 +135,6 @@ export default function AdminPage() {
       setCompetencias(compData);
       if (!competenciaSelecionada) setCompetenciaSelecionada(compData[0].code);
     } else {
-      // Fallback padrão se ainda não tiver competências cadastradas
       const padroes = [
         { id: '1', title: '10/2026 - Folha Mensal', code: '10/2026', year: 2026 },
         { id: '2', title: '09/2026 - Folha Mensal', code: '09/2026', year: 2026 },
@@ -548,7 +550,6 @@ export default function AdminPage() {
       return;
     }
 
-    // Alerta de confirmação humana obrigatória
     const confirma = confirm(
       `⚠️ CONFERÊNCIA OBRIGATÓRIA DE COMPETÊNCIA ⚠️\n\nVocê está prestes a importar os holerites para a competência:\n👉 "${competenciaSelecionada}"\n\nArquivo selecionado: "${arquivoSenior.name}"\n\nVocê confirma que este arquivo pertence exatamente a esta competência?`
     );
@@ -623,7 +624,6 @@ export default function AdminPage() {
       if (!fone.startsWith('55') && fone.length <= 11) fone = '55' + fone;
     }
 
-    // Limpa o nome para nunca enviar "Olá Demonstrativo"
     let nomePuro = (holerite.employee_name || '').trim();
     if (nomePuro.toLowerCase().includes('demonstrativo') || !nomePuro) {
       nomePuro = 'Colaborador(a)';
@@ -739,7 +739,6 @@ export default function AdminPage() {
 
   return (
     <main style={{ padding: '24px 16px', fontFamily: 'system-ui, sans-serif', maxWidth: '1100px', margin: '0 auto', color: '#1e293b' }}>
-      
       {/* Topo Institucional */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #e2e8f0', paddingBottom: '16px', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
@@ -893,12 +892,10 @@ export default function AdminPage() {
                           </div>
                           
                           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                            {/* Botão de Edição Direta do RH */}
                             <button onClick={() => iniciarEdicao(c)} style={{ padding: '6px 10px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
                               ✏️ Editar
                             </button>
 
-                            {/* Botão de WhatsApp com mensagem oficial */}
                             <button
                               onClick={() => {
                                 const fone = extrairTelefone(c);
@@ -927,7 +924,6 @@ export default function AdminPage() {
                           </div>
                         </div>
 
-                        {/* Dados cadastrados em linha única */}
                         <div style={{ padding: '14px', background: '#f8faf9', borderRadius: '6px', fontSize: '13.5px', border: '1px solid #e2e8f0' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             {Object.entries(dadosExtras).map(([k, v]) => (
@@ -1147,7 +1143,7 @@ export default function AdminPage() {
                   O sistema confere se o PDF pertence à competência <b>{competenciaSelecionada}</b> e atualiza sem duplicar:
                 </p>
 
-               <form onSubmit={handleUploadSeniorHCM} style={{ display: 'grid', gap: '10px' }}>
+                <form onSubmit={handleUploadSeniorHCM} style={{ display: 'grid', gap: '10px' }}>
                   <input 
                     id="input-folha-senior"
                     type="file" 
