@@ -53,38 +53,54 @@ export async function POST(request) {
         continue; // Ignora páginas sem CPF
       }
 
-      // 2. Extração de Matrícula (CADASTRO)
-      const regMatch = pageText.match(/CADASTRO[^\d]*([\d.]+)/i)
-                    || pageText.match(/(?:Matrícula|Cadastro|Empregado):?\s*([\d.]+)/i);
-      const matricula = regMatch ? regMatch[1].trim() : null;
+      // 2. Extração Exata de Matrícula (Padrão Senior: ex 1.015344 ou sequência numérica de 5 a 8 dígitos)
+      let matricula = null;
+      const regMatch = pageText.match(/\b(1\.\d{6})\b/) 
+                    || pageText.match(/CADASTRO[^\d\n\r]*(\d[\d.]{4,10})/i);
+      if (regMatch) {
+        matricula = regMatch[1].trim();
+      }
 
-      // 3. Extração Precisa do Nome do Colaborador (Padrão Senior HCM)
+      // 3. Extração Precisa do Nome do Colaborador
       let nomeEncontrado = 'Colaborador';
 
-      // Padrão 1: Pega texto entre "NOME" e "DATA ADMISSÃO" ou "CARGO"
-      const matchNomeSenior = pageText.match(/NOME\s*[\r\n\s]+(?:[\d.]+\s+)?([A-ZÀ-Ú\s]{3,60}?)(?=\s*(?:DATA\s*ADMISS[AÃ]O|CARGO|LOCAL|\n\r|\r|\n|$))/i)
-                           || pageText.match(/NOME\s+([A-ZÀ-Ú\s]{3,60}?)(?=\s*(?:DATA|CARGO))/i);
+      // Pega o bloco entre NOME e DATA ADMISSAO / CARGO
+      const blocoNomeMatch = pageText.match(/NOME[^\n\r]*[\r\n\s]+([^\r\n]+)/i);
 
-      if (matchNomeSenior && matchNomeSenior[1]) {
-        const candidatoNome = matchNomeSenior[1].trim();
-        // Garante que não capturou títulos do cabeçalho
-        if (!candidatoNome.toLowerCase().includes('demonstrativo') && !candidatoNome.toLowerCase().includes('pagamento')) {
-          nomeEncontrado = candidatoNome;
+      if (blocoNomeMatch && blocoNomeMatch[1]) {
+        let linhaBruta = blocoNomeMatch[1];
+
+        // Remove eventuais matrículas no início da linha (ex: "1.015344 ")
+        linhaBruta = linhaBruta.replace(/^1\.\d{6}\s*/, '');
+
+        // Remove datas coladas no final (ex: "21/05/2026", "06/08/2026")
+        linhaBruta = linhaBruta.replace(/\d{1,2}\/\d{1,2}\/\d{2,4}.*$/, '');
+
+        // Remove palavras estruturais do cabeçalho
+        linhaBruta = linhaBruta.replace(/\b(DATA|ADMISSAO|ADMISSÃO|CARGO|LOCAL)\b.*$/i, '');
+
+        // Limpa caracteres indesejados e espaços
+        linhaBruta = linhaBruta.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ\s]/g, '').trim();
+
+        if (linhaBruta.length >= 3 && !linhaBruta.toLowerCase().includes('demonstrativo')) {
+          nomeEncontrado = linhaBruta;
         }
       }
 
-      // Padrão 2 (Fallback por linhas): procura linha com o cadastro
+      // Fallback: se ainda estiver "Colaborador", varre as primeiras linhas procurando linha em caixa alta
       if (nomeEncontrado === 'Colaborador') {
         const linhas = pageText.split('\n').map(l => l.trim()).filter(Boolean);
-        for (let l = 0; l < linhas.length; l++) {
+        for (let l = 0; l < Math.min(linhas.length, 12); l++) {
           const linha = linhas[l];
-          // Se a linha tem a matrícula numérica (ex: 1.015344), o nome costuma vir ao lado ou na linha seguinte
-          if (/^1\.\d{6}/.test(linha)) {
-            const semMatricula = linha.replace(/^1\.\d{6}\s*/, '').trim();
-            if (semMatricula.length > 3 && !semMatricula.toLowerCase().includes('demonstrativo')) {
-              nomeEncontrado = semMatricula;
-              break;
-            }
+          // Procura linha com nome típico em maiúsculas (ao menos 2 palavras, sem palavras do cabeçalho)
+          if (/^[A-ZÀ-Ú\s]{6,50}$/.test(linha) && 
+              !linha.includes('ACUCAR') && 
+              !linha.includes('BANDEIRANTES') && 
+              !linha.includes('DEMONSTRATIVO') && 
+              !linha.includes('SALARIO') &&
+              !linha.includes('CARGO')) {
+            nomeEncontrado = linha;
+            break;
           }
         }
       }
