@@ -3,10 +3,8 @@ import { PDFDocument } from 'pdf-lib';
 import pdfParse from 'pdf-parse';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-);
+// Impede o Next.js de tentar pré-renderizar esta rota de API durante o build na Vercel
+export const dynamic = 'force-dynamic';
 
 // Lista de palavras fixas do formulário Senior que NUNCA fazem parte do nome
 const PALAVRAS_RESERVADAS = [
@@ -40,7 +38,6 @@ function extrairDadosSeniorHCM(pageText) {
   const flatText = pageText.replace(/[\r\n]+/g, ' ');
 
   // ESTRATÉGIA 1 (Principal): Procura [Matrícula com ponto: ex 1.015344 ou 101.015392] + [Nome] + [Data DD/MM/AAAA]
-  // Funciona mesmo que matrícula, nome e data estejam colados sem espaço!
   const regexMatriculaNomeData = /(\d{1,5}\.\d{4,8})\s*([A-ZÀ-Ú][A-ZÀ-Ú\s]{3,60}?)\s*(\d{2}\/\d{2}\/\d{4})/;
   const match1 = flatText.match(regexMatriculaNomeData);
 
@@ -84,6 +81,19 @@ function extrairDadosSeniorHCM(pageText) {
 
 export async function POST(request) {
   try {
+    // Inicializa o cliente Supabase apenas em tempo de execução (evita erro de build na Vercel)
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      return NextResponse.json(
+        { error: 'Variáveis de ambiente do Supabase não configuradas na Vercel.' },
+        { status: 500 }
+      );
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
     const formData = await request.formData();
     const file = formData.get('file');
     const competence = formData.get('competence') || '';
@@ -118,81 +128,4 @@ export async function POST(request) {
 
       // 1. Extração do CPF no rodapé ("portador do CPF 225.083.378-89")
       const cpfMatch = pageText.match(/(?:CPF|cpf)[^\d]*(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/i)
-                    || pageText.match(/\d{3}\.\d{3}\.\d{3}-\d{2}/)
-                    || pageText.match(/(?:\D|^)(\d{11})(?:\D|$)/);
-
-      const rawCpf = cpfMatch ? (cpfMatch[1] || cpfMatch[0]).replace(/\D/g, '') : null;
-
-      if (!rawCpf || rawCpf.length !== 11) {
-        continue;
-      }
-
-      // 2. Extração de Matrícula e Nome ancorada na Matrícula Pontuada e na Data de Admissão
-      const { matricula, nomeEncontrado } = extrairDadosSeniorHCM(pageText);
-
-      // 3. Prevenção de duplicidade (Upsert)
-      const { data: existente } = await supabase
-        .from('employee_payrolls')
-        .select('id')
-        .eq('cpf', rawCpf)
-        .eq('competence', competence)
-        .maybeSingle();
-
-      const safeCompetence = competence.replace('/', '-');
-      const fileName = `${safeCompetence}/${rawCpf}.pdf`;
-
-      await supabase.storage
-        .from('holerites')
-        .upload(fileName, singlePdfBytes, {
-          contentType: 'application/pdf',
-          upsert: true
-        });
-
-      const { data: publicUrlData } = supabase.storage
-        .from('holerites')
-        .getPublicUrl(fileName);
-
-      if (existente) {
-        await supabase
-          .from('employee_payrolls')
-          .update({
-            employee_name: nomeEncontrado,
-            registration_number: matricula,
-            file_url: publicUrlData.publicUrl,
-            status: 'Pendente'
-          })
-          .eq('id', existente.id);
-
-        atualizados.push(rawCpf);
-      } else {
-        const { data: dbData } = await supabase
-          .from('employee_payrolls')
-          .insert([
-            {
-              employee_name: nomeEncontrado,
-              cpf: rawCpf,
-              registration_number: matricula,
-              competence: competence,
-              file_url: publicUrlData.publicUrl,
-              status: 'Pendente'
-            }
-          ])
-          .select()
-          .single();
-
-        if (dbData) processados.push(dbData);
-      }
-    }
-
-    return NextResponse.json({
-      success: true,
-      totalPages,
-      processedCount: processados.length,
-      updatedCount: atualizados.length,
-      message: `${processados.length} novos holerites importados e ${atualizados.length} atualizados com sucesso.`
-    });
-  } catch (error) {
-    console.error('Erro ao processar PDF do Senior HCM:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-}
+                    || pageText.match(/\d{3}\.\d{3}\
