@@ -8,6 +8,69 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 );
 
+// Limpa títulos e rótulos do cabeçalho do Senior HCM para isolar apenas o nome e a matrícula
+function extrairNomeEMatriculaSenior(pageText) {
+  let matricula = null;
+  let nomeEncontrado = 'Colaborador';
+
+  // Transforma quebras de linha em espaço simples
+  const textoUnico = pageText.replace(/[\r\n]+/g, ' ');
+
+  // 1. Tenta isolar o bloco que fica entre o CNPJ (75.619.056/0001-28) e a palavra CARGO
+  const matchBlocoCabecalho = textoUnico.match(/75\.619\.056\/0001-28([\s\S]*?)CARGO/i);
+  const escopoBusca = matchBlocoCabecalho ? matchBlocoCabecalho[1] : textoUnico;
+
+  // Remove os rótulos fixos do cabeçalho para sobrarem apenas: [Matrícula] [Nome] [Data Admissão]
+  let limpo = escopoBusca
+    .replace(/CADASTRO/gi, ' ')
+    .replace(/NOME/gi, ' ')
+    .replace(/DATA\s*ADMISS[AÃ]O/gi, ' ')
+    .replace(/EMPRESA/gi, ' ')
+    .replace(/ACUCAR\s*E\s*ALCOOL\s*BANDEIRANTES\s*S\.?A\.?/gi, ' ')
+    .replace(/DEMONSTRATIVO\s*DE\s*PAGAMENTO\s*DE\s*SAL[AÁ]RIO/gi, ' ')
+    .replace(/M[EÊ]S\s*\/\s*ANO/gi, ' ')
+    .replace(/CNPJ/gi, ' ');
+
+  // Remove datas no formato DD/MM/AAAA (mesmo que estejam coladas ao final do nome)
+  limpo = limpo.replace(/\d{2}\/\d{2}\/\d{4}/g, ' ');
+
+  // Remove competências no formato MM / AAAA
+  limpo = limpo.replace(/\b\d{2}\s*\/\s*\d{4}\b/g, ' ');
+
+  // Procura a matrícula (qualquer número ou formato 1.XXXXXX no início do bloco limpo)
+  const matchMatricula = limpo.match(/([0-9]+\.[0-9]+|[0-9]{3,12})/);
+  if (matchMatricula) {
+    matricula = matchMatricula[1].trim();
+    // Retira a matrícula encontrada para sobrar apenas o nome
+    limpo = limpo.replace(matchMatricula[0], ' ');
+  }
+
+  // Agora extrai apenas as letras e espaços restantes (que correspondem ao Nome do Colaborador)
+  const matchApenasLetras = limpo.match(/([A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ\s]{3,60})/);
+  if (matchApenasLetras) {
+    const candidato = matchApenasLetras[1].replace(/\s{2,}/g, ' ').trim();
+    if (candidato.length >= 4) {
+      nomeEncontrado = candidato.toUpperCase();
+    }
+  }
+
+  // Fallback direto: procura Letras Maiúsculas coladas ou seguidas de Data DD/MM/AAAA no texto geral
+  if (nomeEncontrado === 'Colaborador') {
+    const matchColadoNaData = textoUnico.match(/([A-ZÀ-Ú][A-ZÀ-Ú\s]{4,55}?)\s*\d{2}\/\d{2}\/\d{4}/);
+    if (matchColadoNaData && matchColadoNaData[1]) {
+      const cand = matchColadoNaData[1]
+        .replace(/^(CADASTRO|NOME|ADMISSAO|ADMISSÃO|DATA|EMPRESA)\s*/gi, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+      if (cand.length >= 4 && !cand.includes('BANDEIRANTES')) {
+        nomeEncontrado = cand;
+      }
+    }
+  }
+
+  return { matricula, nomeEncontrado };
+}
+
 export async function POST(request) {
   try {
     const formData = await request.formData();
@@ -15,7 +78,7 @@ export async function POST(request) {
     const competence = formData.get('competence') || '';
 
     if (!file) {
-      return NextResponse.json({ error: 'Nenhum arquivo enviado.' }, { status: 400 });
+      return NextResponse.json({ error: 'Nenhum ficheiro enviado.' }, { status: 400 });
     }
     if (!competence) {
       return NextResponse.json({ error: 'Nenhuma competência selecionada.' }, { status: 400 });
@@ -32,7 +95,7 @@ export async function POST(request) {
     const processados = [];
     const atualizados = [];
 
-    // Fatiamento direto página por página
+    // Fatiamento página a página
     for (let i = 0; i < totalPages; i++) {
       const singlePageDoc = await PDFDocument.create();
       const [copiedPage] = await singlePageDoc.copyPages(originalPdfDoc, [i]);
@@ -50,62 +113,13 @@ export async function POST(request) {
       const rawCpf = cpfMatch ? (cpfMatch[1] || cpfMatch[0]).replace(/\D/g, '') : null;
 
       if (!rawCpf || rawCpf.length !== 11) {
-        continue; // Ignora páginas sem CPF identificado
+        continue;
       }
 
-      // 2. Extração à Prova de Falhas (Achatar o texto e usar assinatura de dados)
-      let matricula = null;
-      let nomeEncontrado = 'Colaborador';
+      // 2. Extração de Matrícula e Nome por isolamento do bloco entre CNPJ e CARGO
+      const { matricula, nomeEncontrado } = extrairNomeEMatriculaSenior(pageText);
 
-      // Substitui as quebras de linha por espaços para neutralizar a desorganização de colunas do PDF
-      const flatText = pageText.replace(/\r?\n/g, ' ').replace(/\s{2,}/g, ' ');
-
-      // Padrão 1: Matrícula (qualquer formato) + Nome + Data Admissão 
-      // Ex: "1.015344 ALESSANDRO DE OLIVEIRA 21/05/2026" ou "10697032906 IGOR EURIPEDES DIAS 06/08/2026"
-      const regexPadrao1 = /\b([0-9.\-_]{4,15})\s+([A-Za-zÀ-Úà-ú\s]{4,60}?)\s+\d{2}\/\d{2}\/\d{4}\b/i;
-      const match1 = flatText.match(regexPadrao1);
-
-      if (match1) {
-        matricula = match1[1].trim();
-        nomeEncontrado = match1[2].trim();
-      } else {
-        // Padrão 2: Matrícula + Nome + CARGO (Quando a data não está no holerite)
-        const regexPadrao2 = /\b([0-9.\-_]{4,15})\s+([A-Za-zÀ-Úà-ú\s]{4,60}?)\s+CARGO\b/i;
-        const match2 = flatText.match(regexPadrao2);
-        
-        if (match2) {
-          matricula = match2[1].trim();
-          nomeEncontrado = match2[2].trim();
-        } else {
-          // Padrão 3: Leitura sequencial de rótulos (CADASTRO -> Valor -> NOME -> Valor)
-          const regexPadrao3 = /CADASTRO\s+([0-9.\-_]{4,15})\s+NOME\s+([A-Za-zÀ-Úà-ú\s]{4,60}?)\s+(?:DATA|CARGO|LOCAL)/i;
-          const match3 = flatText.match(regexPadrao3);
-          
-          if (match3) {
-            matricula = match3[1].trim();
-            nomeEncontrado = match3[2].trim();
-          }
-        }
-      }
-
-      // Limpeza de impurezas para assegurar um nome perfeito
-      if (nomeEncontrado !== 'Colaborador') {
-        nomeEncontrado = nomeEncontrado
-          .replace(/^(NOME|CADASTRO|EMPRESA|DATA)\s*/i, '') // Remove lixo do início
-          .replace(/\b(DATA|ADMISS[AÃ]O|CARGO|LOCAL|CNPJ)\b.*$/i, '') // Remove lixo do fim
-          .replace(/[0-9.\-_]/g, '') // Elimina números ou pontuações residuais
-          .trim();
-          
-        // Validação contra rótulos da empresa lidos por engano
-        if (nomeEncontrado.length < 4 || 
-            nomeEncontrado.toLowerCase().includes('demonstrativo') || 
-            nomeEncontrado.toLowerCase().includes('acucar e alcool') ||
-            nomeEncontrado.toLowerCase().includes('bandeirantes')) {
-          nomeEncontrado = 'Colaborador';
-        }
-      }
-
-      // 4. Prevenção de duplicidade: checa se já existe registro com mesmo CPF e competência
+      // 3. Prevenção de duplicidade (Upsert)
       const { data: existente } = await supabase
         .from('employee_payrolls')
         .select('id')
@@ -116,7 +130,6 @@ export async function POST(request) {
       const safeCompetence = competence.replace('/', '-');
       const fileName = `${safeCompetence}/${rawCpf}.pdf`;
 
-      // Upload no storage (upsert)
       await supabase.storage
         .from('holerites')
         .upload(fileName, singlePdfBytes, {
@@ -129,7 +142,6 @@ export async function POST(request) {
         .getPublicUrl(fileName);
 
       if (existente) {
-        // Atualiza mantendo o mesmo ID
         await supabase
           .from('employee_payrolls')
           .update({
@@ -142,7 +154,6 @@ export async function POST(request) {
 
         atualizados.push(rawCpf);
       } else {
-        // Cria novo
         const { data: dbData } = await supabase
           .from('employee_payrolls')
           .insert([
@@ -167,7 +178,7 @@ export async function POST(request) {
       totalPages,
       processedCount: processados.length,
       updatedCount: atualizados.length,
-      message: `${processados.length} novos holerites importados e ${atualizados.length} atualizados com sucesso.`
+      message: `${processados.length} novos recibos importados e ${atualizados.length} atualizados com sucesso.`
     });
   } catch (error) {
     console.error('Erro ao processar PDF do Senior HCM:', error);
