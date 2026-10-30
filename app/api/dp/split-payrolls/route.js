@@ -3,25 +3,81 @@ import { PDFDocument } from 'pdf-lib';
 import pdfParse from 'pdf-parse';
 import { createClient } from '@supabase/supabase-js';
 
-// Evita que o Next.js tente pré-compilar esta rota como estática
 export const dynamic = 'force-dynamic';
 
-function getSupabaseClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
-  return createClient(url, key);
+const PALAVRAS_BLOQUEADAS = [
+  'DEMONSTRATIVO', 'PAGAMENTO', 'SALARIO', 'SALÁRIO', 'EMPRESA', 'ACUCAR', 'AÇÚCAR',
+  'ALCOOL', 'ÁLCOOL', 'BANDEIRANTES', 'CADASTRO', 'NOME', 'DATA', 'ADMISSAO', 'ADMISSÃO',
+  'CARGO', 'LOCAL', 'REFERENCIA', 'REFERÊNCIA', 'CREDITOS', 'CRÉDITOS', 'DESCONTOS',
+  'DESCRICAO', 'DESCRIÇÃO', 'VALOR', 'LIQUIDO', 'LÍQUIDO', 'BASE', 'INSS', 'FGTS', 'IRRF', 'CNPJ'
+];
+
+function sanitizarNome(texto) {
+  if (!texto) return '';
+  // Remove números e pontuações
+  let limpo = texto.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  
+  // Remove eventuais termos do cabeçalho que tenham ficado colados
+  const palavras = limpo.split(' ').filter(p => {
+    const pUpper = p.toUpperCase();
+    return pUpper.length > 1 && !PALAVRAS_BLOQUEADAS.includes(pUpper);
+  });
+  
+  return palavras.join(' ').trim();
+}
+
+function extrairCabecalhoSenior(pageText) {
+  let matricula = null;
+  let nomeEncontrado = 'Colaborador';
+
+  // Transforma todas as quebras de linha em espaços simples
+  const textoLinear = pageText.replace(/[\r\n]+/g, ' ');
+
+  // 1. Extração da Matrícula Pontuada (ex: 1.015344, 101.015392, etc.)
+  const matchMatricula = textoLinear.match(/\b(\d{1,6}\.\d{4,8})\b/);
+  if (matchMatricula) {
+    matricula = matchMatricula[1].trim();
+  }
+
+  // 2. Extração do Nome baseada na proximidade com a Data de Admissão (DD/MM/AAAA)
+  // Pega até 60 letras que antecedem a data de admissão
+  const regexAntesDaData = new RegExp('([A-ZÀ-Ú][A-ZÀ-Ú\\s]{3,60}?)\\s*\\d{2}/\\d{2}/\\d{4}');
+  const matchNome = textoLinear.match(regexAntesDaData);
+
+  if (matchNome && matchNome[1]) {
+    const nomeLimpo = sanitizarNome(matchNome[1]);
+    if (nomeLimpo.length >= 3) {
+      nomeEncontrado = nomeLimpo;
+    }
+  }
+
+  // Fallback para nome caso a data não tenha sido casada
+  if (nomeEncontrado === 'Colaborador' && matricula) {
+    const regexAposMatricula = new RegExp(matricula.replace('.', '\\.') + '\\s*([A-ZÀ-Ú][A-ZÀ-Ú\\s]{3,50})');
+    const matchAlt = textoLinear.match(regexAposMatricula);
+    if (matchAlt && matchAlt[1]) {
+      const nomeLimpo = sanitizarNome(matchAlt[1]);
+      if (nomeLimpo.length >= 3) {
+        nomeEncontrado = nomeLimpo;
+      }
+    }
+  }
+
+  return { matricula, nomeEncontrado };
 }
 
 export async function POST(request) {
   try {
-    const supabase = getSupabaseClient();
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
     const formData = await request.formData();
     const file = formData.get('file');
     const competence = formData.get('competence') || '';
 
     if (!file) {
-      return NextResponse.json({ error: 'Nenhum arquivo enviado.' }, { status: 400 });
+      return NextResponse.json({ error: 'Nenhum ficheiro enviado.' }, { status: 400 });
     }
     if (!competence) {
       return NextResponse.json({ error: 'Nenhuma competência selecionada.' }, { status: 400 });
@@ -32,13 +88,12 @@ export async function POST(request) {
     const totalPages = originalPdfDoc.getPageCount();
 
     if (totalPages === 0) {
-      return NextResponse.json({ error: 'O PDF enviado está vazio.' }, { status: 400 });
+      return NextResponse.json({ error: 'O ficheiro PDF está vazio.' }, { status: 400 });
     }
 
     const processados = [];
     const atualizados = [];
 
-    // Fatiamento direto página por página
     for (let i = 0; i < totalPages; i++) {
       const singlePageDoc = await PDFDocument.create();
       const [copiedPage] = await singlePageDoc.copyPages(originalPdfDoc, [i]);
@@ -48,7 +103,7 @@ export async function POST(request) {
       const parsedText = await pdfParse(Buffer.from(singlePdfBytes));
       const pageText = parsedText.text;
 
-      // 1. Extração do CPF no rodapé
+      // 1. Extração do CPF
       const cpfMatch = pageText.match(/(?:CPF|cpf)[^\d]*(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/i)
                     || pageText.match(/\d{3}\.\d{3}\.\d{3}-\d{2}/)
                     || pageText.match(/(?:\D|^)(\d{11})(?:\D|$)/);
@@ -59,48 +114,10 @@ export async function POST(request) {
         continue;
       }
 
-      // 2. Extração de Matrícula (CADASTRO)
-      let matricula = null;
-      const regMatch = pageText.match(/\b(1\.\d{6})\b/) 
-                    || pageText.match(/CADASTRO[^\d\n\r]*(\d[\d.]{4,10})/i);
-      if (regMatch) {
-        matricula = regMatch[1].trim();
-      }
+      // 2. Extração de Matrícula e Nome
+      const { matricula, nomeEncontrado } = extrairCabecalhoSenior(pageText);
 
-      // 3. Extração do Nome do Colaborador
-      let nomeEncontrado = 'Colaborador';
-      const blocoNomeMatch = pageText.match(/NOME[^\n\r]*[\r\n\s]+([^\r\n]+)/i);
-
-      if (blocoNomeMatch && blocoNomeMatch[1]) {
-        let linhaBruta = blocoNomeMatch[1];
-        linhaBruta = linhaBruta.replace(/^1\.\d{6}\s*/, '');
-        linhaBruta = linhaBruta.replace(/\d{1,2}\/\d{1,2}\/\d{2,4}.*$/, '');
-        linhaBruta = linhaBruta.replace(/\b(DATA|ADMISSAO|ADMISSÃO|CARGO|LOCAL)\b.*$/i, '');
-        linhaBruta = linhaBruta.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ\s]/g, '').trim();
-
-        if (linhaBruta.length >= 3 && !linhaBruta.toLowerCase().includes('demonstrativo')) {
-          nomeEncontrado = linhaBruta;
-        }
-      }
-
-      // Fallback para Nome
-      if (nomeEncontrado === 'Colaborador') {
-        const linhas = pageText.split('\n').map(l => l.trim()).filter(Boolean);
-        for (let l = 0; l < Math.min(linhas.length, 12); l++) {
-          const linha = linhas[l];
-          if (/^[A-ZÀ-Ú\s]{6,50}$/.test(linha) && 
-              !linha.includes('ACUCAR') && 
-              !linha.includes('BANDEIRANTES') && 
-              !linha.includes('DEMONSTRATIVO') && 
-              !linha.includes('SALARIO') &&
-              !linha.includes('CARGO')) {
-            nomeEncontrado = linha;
-            break;
-          }
-        }
-      }
-
-      // 4. Prevenção de duplicidade (Upsert)
+      // 3. Prevenção de duplicidade (Upsert)
       const { data: existente } = await supabase
         .from('employee_payrolls')
         .select('id')
@@ -159,7 +176,7 @@ export async function POST(request) {
       totalPages,
       processedCount: processados.length,
       updatedCount: atualizados.length,
-      message: `${processados.length} novos holerites importados e ${atualizados.length} atualizados com sucesso.`
+      message: `${processados.length} novos recibos importados e ${atualizados.length} atualizados com sucesso.`
     });
   } catch (error) {
     console.error('Erro ao processar PDF do Senior HCM:', error);
