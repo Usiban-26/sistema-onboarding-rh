@@ -10,6 +10,7 @@ const supabase = createClient(
 );
 
 const LINK_OFICIAL_PORTAL = 'https://sistema-onboarding-rh-4mj4.vercel.app/';
+const LINK_MEU_HOLERITE = 'https://sistema-onboarding-rh-4mj4.vercel.app/meu-holerite';
 
 export default function AdminPage() {
   // Controle de Sessão
@@ -633,7 +634,24 @@ export default function AdminPage() {
     carregarDados();
   }
 
-  // Disparo WhatsApp do Holerite
+  // Visualização Segura do PDF no Painel de Admin (Signed URL sob demanda)
+  async function handleVisualizarPdf(item) {
+    const safeComp = item.competence.replace('/', '-');
+    const filePath = `${safeComp}/${item.cpf}.pdf`;
+
+    const { data, error } = await supabase.storage
+      .from('holerites')
+      .createSignedUrl(filePath, 300); // 300 segundos = 5 minutos
+
+    if (error || !data?.signedUrl) {
+      alert('Erro ao gerar visualização do PDF. Verifique se o bucket "holerites" contém o arquivo.');
+      return;
+    }
+
+    window.open(data.signedUrl, '_blank');
+  }
+
+  // Disparo WhatsApp Seguro: envia o link do portal autenticado por OTP
   function obterTelefonePorCpf(cpf) {
     const cpfLimpo = (cpf || '').replace(/\D/g, '');
     const achado = candidates.find(c => {
@@ -651,7 +669,7 @@ export default function AdminPage() {
     let fone = obterTelefonePorCpf(holerite.cpf);
 
     if (!fone || fone.length < 10) {
-      const foneInformado = prompt(`Informe o WhatsApp com DDD para o colaborador (CPF: ${holerite.cpf}):`);
+      const foneInformado = prompt(`Informe o WhatsApp com DDD para o colaborador ${holerite.employee_name} (CPF: ${holerite.cpf}):`);
       if (!foneInformado) return;
       fone = foneInformado.replace(/\D/g, '');
       if (!fone.startsWith('55') && fone.length <= 11) fone = '55' + fone;
@@ -663,7 +681,8 @@ export default function AdminPage() {
     }
     const primeiroNome = nomePuro.split(' ')[0];
 
-    const mensagem = `Olá ${primeiroNome}, o seu Demonstrativo de Pagamento referente à competência *${holerite.competence}* da Usina Bandeirante (USIBAN) já está disponível.\n\n📄 *Acesse o documento oficial no link abaixo:*\n${holerite.file_url}\n\nEm caso de dúvidas sobre a folha, entre em contato com o Departamento Pessoal.`;
+    // Mensagem segura: direciona para o portal onde o colaborador valida o OTP
+    const mensagem = `Olá ${primeiroNome}, o seu Demonstrativo de Pagamento referente à competência *${holerite.competence}* da Usina Bandeirante (USIBAN) já está disponível.\n\n🔒 *Por motivos de segurança e sigilo, acesse seu contracheque pelo portal oficial:*\n👉 ${LINK_MEU_HOLERITE}\n\nInforme seu CPF e valide o código de segurança para visualizar o documento. Em caso de dúvidas, contate o DP.`;
 
     await supabase.from('employee_payrolls').update({ status: 'Enviado', channel: 'WhatsApp' }).eq('id', holerite.id);
     carregarDados();
@@ -1284,13 +1303,26 @@ export default function AdminPage() {
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <a href={item.file_url} target="_blank" rel="noopener noreferrer" style={{ padding: '6px 12px', background: '#f1f5f9', color: '#003366', border: '1px solid #cbd5e1', borderRadius: '5px', textDecoration: 'none', fontWeight: 'bold', fontSize: '12px' }}>
+                      {/* Botão Ver PDF com Signed URL sob demanda */}
+                      <button 
+                        onClick={() => handleVisualizarPdf(item)}
+                        style={{ padding: '6px 12px', background: '#f1f5f9', color: '#003366', border: '1px solid #cbd5e1', borderRadius: '5px', fontWeight: 'bold', fontSize: '12px', cursor: 'pointer' }}
+                      >
                         📄 Ver PDF
-                      </a>
-                      <button onClick={() => handleDispararHoleriteWhatsApp(item)} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px', background: '#25D366', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
+                      </button>
+
+                      {/* Botão WhatsApp Seguro */}
+                      <button 
+                        onClick={() => handleDispararHoleriteWhatsApp(item)} 
+                        style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px', background: '#25D366', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                      >
                         📱 WhatsApp
                       </button>
-                      <button onClick={async () => { if (confirm('Remover este holerite?')) { await supabase.from('employee_payrolls').delete().eq('id', item.id); carregarDados(); } }} style={{ padding: '6px 8px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>
+
+                      <button 
+                        onClick={async () => { if (confirm('Remover este holerite?')) { await supabase.from('employee_payrolls').delete().eq('id', item.id); carregarDados(); } }} 
+                        style={{ padding: '6px 8px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}
+                      >
                         🗑️
                       </button>
                     </div>
