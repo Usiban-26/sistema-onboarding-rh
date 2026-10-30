@@ -10,7 +10,7 @@ function getSupabase() {
   );
 }
 
-// 1. SOLICITAR CÓDIGO (POST)
+// 1. SOLICITAR CÓDIGO OTP (POST)
 export async function POST(request) {
   try {
     const { cpf } = await request.json();
@@ -22,7 +22,7 @@ export async function POST(request) {
 
     const supabase = getSupabase();
 
-    // Localiza o colaborador na base para pegar o telefone dele
+    // Localiza o colaborador na base para recuperar o telefone
     const { data: candidato } = await supabase
       .from('onboarding_candidates')
       .select('full_name, phone, custom_data')
@@ -32,7 +32,7 @@ export async function POST(request) {
     let telefone = candidato?.phone || candidato?.custom_data?.['WhatsApp / Telefone'] || candidato?.custom_data?.['Telefone'] || '';
     telefone = telefone.replace(/\D/g, '');
 
-    // Se não encontrou o telefone em R&S, busca nos convites
+    // Se não encontrou em R&S, pesquisa na lista de convites
     if (!telefone) {
       const { data: convite } = await supabase
         .from('admission_invites')
@@ -45,7 +45,7 @@ export async function POST(request) {
 
     if (!telefone || telefone.length < 10) {
       return NextResponse.json({ 
-        error: 'Nenhum telefone celular cadastrado para este CPF. Contate o DP.' 
+        error: 'Nenhum telefone móvel localizado para este CPF. Entre em contato com o Departamento Pessoal.' 
       }, { status: 404 });
     }
 
@@ -53,7 +53,7 @@ export async function POST(request) {
       telefone = '55' + telefone;
     }
 
-    // Gera um código de 6 dígitos aleatórios
+    // Gera código de segurança numérico de 6 dígitos
     const codigoOtp = Math.floor(100000 + Math.random() * 900000).toString();
     const expiraEm = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5 minutos de validade
 
@@ -74,13 +74,12 @@ export async function POST(request) {
       }
     ]);
 
-    // Mascara o telefone para mostrar na tela (ex: (43) 998**-**21)
+    // Mascara o número (ex: (43) 998**-**21)
     const ddd = telefone.slice(2, 4);
     const ultimos = telefone.slice(-2);
     const foneMascarado = `(${ddd}) *****-**${ultimos}`;
 
-    // Mensagem pronta que o colaborador pode acionar ou receber
-    const textoWhatsApp = `🔒 *USIBAN - Código de Acesso ao Holerite*\n\nSeu código de segurança é: *${codigoOtp}*\n\nEle expira em 5 minutos. Não compartilhe com ninguém.`;
+    const textoWhatsApp = `🔒 *USIBAN - Código de Acesso ao Holerite*\n\nSeu código de segurança é: *${codigoOtp}*\n\nEle expira em 5 minutos. Não compartilhe este código com ninguém.`;
 
     return NextResponse.json({
       success: true,
@@ -94,7 +93,7 @@ export async function POST(request) {
   }
 }
 
-// 2. VALIDAR CÓDIGO E GERAR URLS ASSINADAS TEMPORÁRIAS (PUT)
+// 2. VALIDAR CÓDIGO E GERAR SIGNED URLS DE 15 MINUTOS (PUT)
 export async function PUT(request) {
   try {
     const { cpf, code } = await request.json();
@@ -103,7 +102,6 @@ export async function PUT(request) {
 
     const supabase = getSupabase();
 
-    // Verifica se o código é válido, não expirou e não foi usado
     const { data: otpValido } = await supabase
       .from('employee_otp_codes')
       .select('*')
@@ -114,23 +112,23 @@ export async function PUT(request) {
       .maybeSingle();
 
     if (!otpValido) {
-      return NextResponse.json({ error: 'Código inválido ou expirado.' }, { status: 401 });
+      return NextResponse.json({ error: 'Código de segurança incorreto ou expirado.' }, { status: 401 });
     }
 
-    // Marca o código como utilizado para nunca ser reutilizado
+    // Invalida o código utilizado
     await supabase
       .from('employee_otp_codes')
       .update({ used: true })
       .eq('id', otpValido.id);
 
-    // Busca os holerites do colaborador
+    // Consulta os holerites do colaborador
     const { data: payrolls } = await supabase
       .from('employee_payrolls')
       .select('*')
       .eq('cpf', rawCpf)
       .order('competence', { ascending: false });
 
-    // Gera Signed URLs com validade de 15 minutos para cada holerite
+    // Gera Signed URLs com expiração em 900s (15 min) para cada holerite
     const holeritesProtegidos = [];
     for (const h of (payrolls || [])) {
       const safeComp = h.competence.replace('/', '-');
@@ -138,7 +136,7 @@ export async function PUT(request) {
 
       const { data: signedData } = await supabase.storage
         .from('holerites')
-        .createSignedUrl(filePath, 900); // 900s = 15 minutos
+        .createSignedUrl(filePath, 900);
 
       holeritesProtegidos.push({
         id: h.id,
