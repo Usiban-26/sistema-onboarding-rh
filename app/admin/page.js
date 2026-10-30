@@ -4,7 +4,6 @@ export const dynamic = 'force-dynamic';
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// Fallback seguro para evitar falha no build estático da Vercel
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co',
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key'
@@ -40,6 +39,9 @@ export default function AdminPage() {
   const [arquivoSenior, setArquivoSenior] = useState(null);
   const [processandoPdf, setProcessandoPdf] = useState(false);
   const [statusProcessamento, setStatusProcessamento] = useState('');
+
+  // Configuração do Telefone do DP
+  const [telefoneAtendimentoDP, setTelefoneAtendimentoDP] = useState('');
 
   // Modal Gerenciar Competências
   const [modalCompAberto, setModalCompAberto] = useState(false);
@@ -151,6 +153,17 @@ export default function AdminPage() {
       .select('*')
       .order('created_at', { ascending: false });
     if (payrollsData) setPayrolls(payrollsData);
+
+    // 7. Telefone de Atendimento do DP
+    const { data: configPhone } = await supabase
+      .from('system_settings')
+      .select('value')
+      .eq('key', 'whatsapp_dp_phone')
+      .maybeSingle();
+
+    if (configPhone && configPhone.value) {
+      setTelefoneAtendimentoDP(configPhone.value);
+    }
   }
 
   useEffect(() => {
@@ -538,6 +551,26 @@ export default function AdminPage() {
     carregarDados();
   }
 
+  // --- SALVAR NÚMERO DE ATENDIMENTO DO DP ---
+  async function handleSalvarTelefoneDP(e) {
+    e.preventDefault();
+    const foneLimpo = telefoneAtendimentoDP.replace(/\D/g, '');
+    const { error } = await supabase
+      .from('system_settings')
+      .upsert({
+        key: 'whatsapp_dp_phone',
+        value: foneLimpo,
+        updated_at: new Date().toISOString()
+      });
+
+    if (!error) {
+      alert('Telefone do WhatsApp de atendimento do DP salvo com sucesso!');
+      carregarDados();
+    } else {
+      alert('Erro ao salvar telefone: ' + error.message);
+    }
+  }
+
   // --- FAIXA DO SENIOR: FATIAMENTO COM CONFIRMAÇÃO DO OPERADOR ---
   async function handleUploadSeniorHCM(e) {
     e.preventDefault();
@@ -730,7 +763,6 @@ export default function AdminPage() {
     );
   }
 
-  // Filtragem de Competências
   const anosDisponiveis = Array.from(new Set(competencias.map(c => c.year || 2026))).sort((a, b) => b - a);
   const competenciasDoAno = competencias.filter(c => Number(c.year) === Number(anoFiltro));
   const holeritesFiltrados = payrolls.filter(p => p.competence === competenciaSelecionada);
@@ -739,6 +771,7 @@ export default function AdminPage() {
 
   return (
     <main style={{ padding: '24px 16px', fontFamily: 'system-ui, sans-serif', maxWidth: '1100px', margin: '0 auto', color: '#1e293b' }}>
+      
       {/* Topo Institucional */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #e2e8f0', paddingBottom: '16px', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
@@ -815,7 +848,6 @@ export default function AdminPage() {
       {/* --- MÓDULO 1: RECRUTAMENTO & SELEÇÃO (R&S) --- */}
       {moduloAtivo === 'recrutamento' && (
         <div>
-          {/* Sub-abas de R&S */}
           <div style={{ display: 'flex', gap: '8px', marginBottom: '18px', flexWrap: 'wrap' }}>
             <button onClick={() => setAbaRS('candidatos')} style={{ padding: '8px 14px', border: 'none', borderBottom: abaRS === 'candidatos' ? '3px solid #0c5e31' : 'none', background: abaRS === 'candidatos' ? '#e8f5e9' : '#f8fafc', color: abaRS === 'candidatos' ? '#0c5e31' : '#64748b', fontWeight: 'bold', cursor: 'pointer', borderRadius: '4px' }}>
               👥 Candidatos & Validação
@@ -831,7 +863,6 @@ export default function AdminPage() {
             </button>
           </div>
 
-          {/* Modal Edição do RH */}
           {candidatoEditando && (
             <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
               <div style={{ background: '#fff', padding: '24px', borderRadius: '10px', width: '100%', maxWidth: '580px', maxHeight: '90vh', overflowY: 'auto' }}>
@@ -857,7 +888,6 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* SUB-ABA 1: CANDIDATOS */}
           {abaRS === 'candidatos' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '18px' }}>
@@ -955,7 +985,6 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* SUB-ABA 2: CONVITES WHATSAPP */}
           {abaRS === 'convites' && (
             <div>
               <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
@@ -996,7 +1025,6 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* SUB-ABA 3: CAMPOS PESSOAIS */}
           {abaRS === 'campos' && (
             <div>
               <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
@@ -1028,7 +1056,6 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* SUB-ABA 4: DOCUMENTOS EXIGIDOS */}
           {abaRS === 'documentos' && (
             <div>
               <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
@@ -1056,6 +1083,31 @@ export default function AdminPage() {
       {/* --- MÓDULO 2: DEPARTAMENTO PESSOAL (SENIOR HCM) --- */}
       {moduloAtivo === 'dp' && (
         <div>
+          {/* Configuração Dinâmica do WhatsApp do DP */}
+          <div style={{ background: '#fff', padding: '18px 22px', borderRadius: '10px', border: '1px solid #cbd5e1', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
+            <div>
+              <h3 style={{ margin: '0 0 4px 0', color: '#003366', fontSize: '16px' }}>📱 Canal WhatsApp de Atendimento ao Colaborador</h3>
+              <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
+                Número corporativo do DP que receberá as dúvidas e solicitações enviadas pela Central do Colaborador.
+              </p>
+            </div>
+            <form onSubmit={handleSalvarTelefoneDP} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="text"
+                placeholder="Ex: 5543999999999"
+                value={telefoneAtendimentoDP}
+                onChange={e => setTelefoneAtendimentoDP(e.target.value)}
+                style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', minWidth: '180px' }}
+              />
+              <button
+                type="submit"
+                style={{ padding: '8px 16px', background: '#003366', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
+              >
+                Salvar Número
+              </button>
+            </form>
+          </div>
+
           {/* Modal Gerenciar Competências */}
           {modalCompAberto && (
             <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px' }}>
@@ -1152,7 +1204,6 @@ export default function AdminPage() {
                     style={{ padding: '8px', background: '#fff', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }} 
                   />
                 
-                  {/* Aviso em amarelo para conferência do operador */}
                   <div style={{ padding: '10px 12px', background: '#fef3c7', borderLeft: '4px solid #b45309', borderRadius: '4px', fontSize: '12px', color: '#92400e', lineHeight: '1.4' }}>
                     <b>⚠️ Atenção Operador:</b> Confira se a competência ativa selecionada (<b>{competenciaSelecionada}</b>) confere exatamente com o mês/ano impresso no arquivo que você está enviando.
                   </div>
