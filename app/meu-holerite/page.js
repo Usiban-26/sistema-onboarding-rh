@@ -140,17 +140,19 @@ export default function MeuHoleritePage() {
           <img src="/logo-usiban.png" alt="USIBAN" onError={(e) => { e.currentTarget.style.display = 'none'; }} style={{ width: '80px', height: 'auto', marginBottom: '10px' }} />
           <h1 style={{ margin: 0, color: '#0c5e31', fontSize: '24px', fontWeight: '800' }}>Central do Colaborador</h1>
           <p style={{ margin: '4px 0 0 0', color: '#64748b', fontSize: '14px' }}>
-            Usina Bandeirante (USIBAN) • Acesso Seguro ao Demonstrativo de Pagamento
+            Usina Bandeirante (USIBAN) • Demonstrativos de Pagamento & Atendimento ao Trabalhador
           </p>
         </div>
 
         {/* ETAPA 1: DIGITAR CPF */}
-        {etapa === 'cpf' && (
-          <div style={{ background: '#fff', padding: '28px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
-            <h2 style={{ fontSize: '18px', color: '#0c5e31', margin: '0 0 8px 0' }}>🔐 Acesso Seguro ao Contracheque</h2>
-            <p style={{ fontSize: '13.5px', color: '#64748b', margin: '0 0 18px 0' }}>
-              Para garantir a total privacidade dos seus rendimentos, enviaremos um código de uso único (OTP) para o seu WhatsApp cadastrado.
-            </p>
+          {etapa === 'cpf' && (
+            <div style={{ background: '#fff', padding: '28px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+              <h2 style={{ fontSize: '18px', color: '#0c5e31', margin: '0 0 8px 0' }}>
+                🔐 Acesso ao Demonstrativo de Pagamento e Solicitações ao Departamento Pessoal
+              </h2>
+              <p style={{ fontSize: '13.5px', color: '#64748b', margin: '0 0 18px 0' }}>
+                Para garantir a total privacidade dos seus dados e rendimentos, enviaremos um código de uso único (OTP) para o seu WhatsApp cadastrado.
+              </p>
 
             <form onSubmit={handleSolicitarOtp} style={{ display: 'grid', gap: '14px' }}>
               <div>
