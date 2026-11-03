@@ -10,7 +10,7 @@ function getSupabase() {
   );
 }
 
-// 1. SOLICITAR CÓDIGO OTP (POST)
+// 1. SOLICITAR CÓDIGO OTP (POST) - EXCLUSIVO TABELA EMPLOYEES
 export async function POST(request) {
   try {
     const { cpf } = await request.json();
@@ -22,30 +22,34 @@ export async function POST(request) {
 
     const supabase = getSupabase();
 
-    // Localiza o colaborador na base para recuperar o telefone
-    const { data: candidato } = await supabase
-      .from('onboarding_candidates')
-      .select('full_name, phone, custom_data')
-      .filter('custom_data->>CPF', 'eq', rawCpf)
+    // Consulta restrita à base de funcionários ativos importados do Senior
+    const { data: emp, error: empError } = await supabase
+      .from('employees')
+      .select('full_name, phone, email, is_active')
+      .eq('cpf', rawCpf)
       .maybeSingle();
 
-    let telefone = candidato?.phone || candidato?.custom_data?.['WhatsApp / Telefone'] || candidato?.custom_data?.['Telefone'] || '';
-    telefone = telefone.replace(/\D/g, '');
-
-    // Se não encontrou em R&S, pesquisa na lista de convites
-    if (!telefone) {
-      const { data: convite } = await supabase
-        .from('admission_invites')
-        .select('phone')
-        .eq('status', 'Enviado')
-        .limit(1)
-        .maybeSingle();
-      if (convite) telefone = convite.phone.replace(/\D/g, '');
+    if (empError) {
+      throw empError;
     }
+
+    if (!emp) {
+      return NextResponse.json({ 
+        error: 'CPF não localizado no quadro de colaboradores ativos da USIBAN. Procure o Departamento Pessoal.' 
+      }, { status: 404 });
+    }
+
+    if (!emp.is_active) {
+      return NextResponse.json({ 
+        error: 'Cadastro inativo. Entre em contato com o Departamento Pessoal.' 
+      }, { status: 403 });
+    }
+
+    let telefone = (emp.phone || '').replace(/\D/g, '');
 
     if (!telefone || telefone.length < 10) {
       return NextResponse.json({ 
-        error: 'Nenhum telefone móvel localizado para este CPF. Entre em contato com o Departamento Pessoal.' 
+        error: 'Nenhum celular cadastrado para este colaborador. Solicite a inclusão do número junto ao DP.' 
       }, { status: 404 });
     }
 
@@ -53,17 +57,17 @@ export async function POST(request) {
       telefone = '55' + telefone;
     }
 
-    // Gera código de segurança numérico de 6 dígitos
+    // Gera código numérico de uso único (6 dígitos)
     const codigoOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiraEm = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5 minutos de validade
+    const expiraEm = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5 minutos
 
-    // Invalida códigos anteriores não usados deste CPF
+    // Invalida tokens anteriores não utilizados deste CPF
     await supabase
       .from('employee_otp_codes')
       .update({ used: true })
       .eq('cpf', rawCpf);
 
-    // Salva o novo código
+    // Registra o token gerado
     await supabase.from('employee_otp_codes').insert([
       {
         cpf: rawCpf,
@@ -74,17 +78,18 @@ export async function POST(request) {
       }
     ]);
 
-    // Mascara o número (ex: (43) 998**-**21)
+    // Mascara o número para exibição segura na tela
     const ddd = telefone.slice(2, 4);
     const ultimos = telefone.slice(-2);
     const foneMascarado = `(${ddd}) *****-**${ultimos}`;
 
-    const textoWhatsApp = `🔒 *USIBAN - Código de Acesso ao Holerite*\n\nSeu código de segurança é: *${codigoOtp}*\n\nEle expira em 5 minutos. Não compartilhe este código com ninguém.`;
+    const textoWhatsApp = `🔒 *USIBAN - Código de Acesso ao Demonstrativo*\n\nOlá ${emp.full_name.split(' ')[0]}, seu código de segurança é: *${codigoOtp}*\n\nEle expira em 5 minutos. Não compartilhe com terceiros.`;
 
     return NextResponse.json({
       success: true,
       phoneMasked: foneMascarado,
       phoneRaw: telefone,
+      emailAvailable: !!emp.email,
       whatsappUrl: `https://wa.me/${telefone}?text=${encodeURIComponent(textoWhatsApp)}`
     });
 
@@ -102,6 +107,7 @@ export async function PUT(request) {
 
     const supabase = getSupabase();
 
+    // Valida token temporário ativo
     const { data: otpValido } = await supabase
       .from('employee_otp_codes')
       .select('*')
@@ -115,20 +121,27 @@ export async function PUT(request) {
       return NextResponse.json({ error: 'Código de segurança incorreto ou expirado.' }, { status: 401 });
     }
 
-    // Invalida o código utilizado
+    // Invalida o token após uso
     await supabase
       .from('employee_otp_codes')
       .update({ used: true })
       .eq('id', otpValido.id);
 
-    // Consulta os holerites do colaborador
+    // Busca os holerites do colaborador
     const { data: payrolls } = await supabase
       .from('employee_payrolls')
       .select('*')
       .eq('cpf', rawCpf)
       .order('competence', { ascending: false });
 
-    // Gera Signed URLs com expiração em 900s (15 min) para cada holerite
+    // Busca o nome do colaborador direto de employees
+    const { data: emp } = await supabase
+      .from('employees')
+      .select('full_name')
+      .eq('cpf', rawCpf)
+      .maybeSingle();
+
+    // Gera Signed URLs com expiração em 15 minutos (900s)
     const holeritesProtegidos = [];
     for (const h of (payrolls || [])) {
       const safeComp = h.competence.replace('/', '-');
@@ -141,7 +154,7 @@ export async function PUT(request) {
       holeritesProtegidos.push({
         id: h.id,
         competence: h.competence,
-        employee_name: h.employee_name,
+        employee_name: emp?.full_name || h.employee_name,
         registration_number: h.registration_number,
         file_url: signedData ? signedData.signedUrl : null
       });
@@ -149,7 +162,7 @@ export async function PUT(request) {
 
     return NextResponse.json({
       success: true,
-      employeeName: holeritesProtegidos[0]?.employee_name || 'Colaborador',
+      employeeName: emp?.full_name || holeritesProtegidos[0]?.employee_name || 'Colaborador',
       payrolls: holeritesProtegidos
     });
 
