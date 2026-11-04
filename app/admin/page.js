@@ -1525,7 +1525,7 @@ export default function AdminPage() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', marginBottom: '20px' }}>
                   <div style={{ background: '#f8fafc', padding: '18px', borderRadius: '8px', border: '1px dashed #003366' }}>
-                    <h3 style={{ margin: '0 0 8px 0', color: '#003366', fontSize: '16px' }}>1. Upload da Folha (Senior HCM)</h3>
+                    <h3 style={{ margin: '0 0 8px 0', color: '#003366', fontSize: '16px' }}>1. Upload da Folha (Senior HCM) Relatório 106</h3>
                     <p style={{ fontSize: '12.5px', color: '#64748b', marginTop: 0 }}>
                       O sistema confere se o PDF pertence à competência <b>{competenciaSelecionada}</b> e atualiza sem duplicar:
                     </p>
