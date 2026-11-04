@@ -37,12 +37,9 @@ export default function AdminPage() {
   // Base Oficial de Colaboradores (DP)
   const [colaboradores, setColaboradores] = useState([]);
   const [buscaColaborador, setBuscaColaborador] = useState('');
-  const [novoColabCpf, setNovoColabCpf] = useState('');
-  const [novoColabNome, setNovoColabNome] = useState('');
-  const [novoColabMatricula, setNovoColabMatricula] = useState('');
-  const [novoColabTelefone, setNovoColabTelefone] = useState('');
-  const [novoColabEmail, setNovoColabEmail] = useState('');
-  const [loteColaboradores, setLoteColaboradores] = useState('');
+  const [mensagemConvitePortal, setMensagemConvitePortal] = useState(
+    `Olá {NOME}, informamos que a Usina Bandeirante (USIBAN) disponibilizou a nova *Central do Colaborador*.\n\nAtravés dela, você pode:\n📄 *Consultar seus Demonstrativos de Pagamento (Holerites)* de forma prática e segura.\n💬 *Falar diretamente com o Departamento Pessoal* para tirar dúvidas sobre férias, contracheque e benefícios.\n\n👉 *Acesse pelo link oficial:*\n${LINK_MEU_HOLERITE}\n\nPara acessar, basta informar o seu CPF e validar o código de uso único (OTP) enviado para o seu WhatsApp.`
+  );
 
   // Módulo DP (Holerites e Competências)
   const [competencias, setCompetencias] = useState([]);
@@ -406,7 +403,7 @@ export default function AdminPage() {
     janela.document.close();
   }
 
-  // --- CONVITES WHATSAPP ---
+  // --- CONVITES WHATSAPP (R&S) ---
   async function handleAdicionarConviteIndividual(e) {
     e.preventDefault();
     if (!conviteNome || !conviteTelefone) return;
@@ -471,7 +468,7 @@ export default function AdminPage() {
     carregarDados();
   }
 
-  // --- CAMPOS E DOCUMENTOS EXIGIDOS ---
+  // --- CAMPOS E DOCUMENTOS EXIGIDOS (R&S) ---
   async function handleMoverCampo(index, direcao) {
     const novoIndex = direcao === 'cima' ? index - 1 : index + 1;
     if (novoIndex < 0 || novoIndex >= requiredFields.length) return;
@@ -540,91 +537,56 @@ export default function AdminPage() {
   }
 
   // --- BASE OFICIAL DE COLABORADORES (DP) ---
-  async function handleCadastrarColaborador(e) {
-    e.preventDefault();
-    const cpfLimpo = novoColabCpf.replace(/\D/g, '');
-    const foneLimpo = novoColabTelefone.replace(/\D/g, '');
+  async function handleLimparTodaBaseColaboradores() {
+    const confirmacao = prompt(
+      `⚠️ ATENÇÃO - AÇÃO CRÍTICA E IRREVERSÍVEL ⚠️\n\nVocê está prestes a EXCLUIR TODOS OS COLABORADORES da base oficial.\nIsso afetará os acessos e envios de demonstrativos.\n\nDigite a palavra LIMPAR para confirmar a exclusão:`
+    );
 
-    if (cpfLimpo.length !== 11) {
-      alert('CPF inválido. Digite 11 números.');
-      return;
-    }
+    if (confirmacao !== 'LIMPAR') return;
 
-    const { error } = await supabase.from('employees').upsert({
-      cpf: cpfLimpo,
-      full_name: novoColabNome.trim(),
-      registration_number: novoColabMatricula.trim() || null,
-      phone: foneLimpo || null,
-      email: novoColabEmail.trim().toLowerCase() || null,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'cpf' });
-
+    const { error } = await supabase.from('employees').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     if (!error) {
-      alert(`Colaborador ${novoColabNome} salvo com sucesso!`);
-      setNovoColabCpf('');
-      setNovoColabNome('');
-      setNovoColabMatricula('');
-      setNovoColabTelefone('');
-      setNovoColabEmail('');
+      alert('Base oficial de colaboradores esvaziada com sucesso.');
       carregarDados();
     } else {
-      alert('Erro ao salvar colaborador: ' + error.message);
-    }
-  }
-
-  async function handleImportarLoteColaboradores(e) {
-    e.preventDefault();
-    if (!loteColaboradores.trim()) return;
-
-    const linhas = loteColaboradores.split('\n');
-    const registros = [];
-
-    linhas.forEach(linha => {
-      // Aceita delimitador vírgula, ponto e vírgula ou tabulação (Excel)
-      const partes = linha.split(/[,;\t]/).map(p => p.trim());
-      if (partes.length >= 2) {
-        // Formato esperado: CPF ; NOME ; TELEFONE ; EMAIL ; MATRICULA
-        const rawCpf = partes[0].replace(/\D/g, '');
-        const nome = partes[1];
-        const fone = partes[2] ? partes[2].replace(/\D/g, '') : null;
-        const mail = partes[3] && partes[3].includes('@') ? partes[3].toLowerCase() : null;
-        const mat = partes[4] || null;
-
-        if (rawCpf.length === 11 && nome) {
-          registros.push({
-            cpf: rawCpf,
-            full_name: nome,
-            phone: fone,
-            email: mail,
-            registration_number: mat,
-            updated_at: new Date().toISOString()
-          });
-        }
-      }
-    });
-
-    if (registros.length === 0) {
-      alert('Nenhum registro válido detectado. Formato sugerido:\nCPF, Nome, Telefone, Email, Matricula');
-      return;
-    }
-
-    const { error } = await supabase
-      .from('employees')
-      .upsert(registros, { onConflict: 'cpf' });
-
-    if (!error) {
-      alert(`✅ ${registros.length} colaboradores importados/atualizados com sucesso!`);
-      setLoteColaboradores('');
-      carregarDados();
-    } else {
-      alert('Erro na importação: ' + error.message);
+      alert('Erro ao limpar a base: ' + error.message);
     }
   }
 
   async function handleExcluirColaborador(id, nome) {
-    if (!confirm(`Remover o cadastro de ${nome}?`)) return;
+    if (!confirm(`Remover o cadastro de "${nome}"?`)) return;
     await supabase.from('employees').delete().eq('id', id);
     carregarDados();
+  }
+
+  function dispararConviteIndividualWhatsApp(colab) {
+    let fone = (colab.phone || '').replace(/\D/g, '');
+    if (!fone) {
+      alert(`O colaborador ${colab.full_name} não possui número de telefone cadastrado.`);
+      return;
+    }
+    if (!fone.startsWith('55') && fone.length <= 11) fone = '55' + fone;
+
+    const primeiroNome = (colab.full_name || 'Colaborador').trim().split(' ')[0];
+    const mensagem = mensagemConvitePortal.replace('{NOME}', primeiroNome);
+
+    window.open(`https://wa.me/${fone}?text=${encodeURIComponent(mensagem)}`, '_blank');
+  }
+
+  async function handleDispararConviteLote() {
+    const comTelefone = colaboradoresFiltrados.filter(c => c.phone && c.phone.length >= 10);
+    if (comTelefone.length === 0) {
+      alert('Nenhum colaborador com telefone válido na listagem atual.');
+      return;
+    }
+
+    if (!confirm(`Iniciar o envio do convite oficial para ${comTelefone.length} colaboradores com telefone? O WhatsApp de cada um será aberto em fila.`)) return;
+
+    for (const c of comTelefone) {
+      dispararConviteIndividualWhatsApp(c);
+      const prosseguir = confirm(`Convite aberto para ${c.full_name}. Deseja prosseguir para o próximo colaborador?`);
+      if (!prosseguir) break;
+    }
   }
 
   // --- MÓDULO DP: GERENCIAR COMPETÊNCIAS ---
@@ -754,32 +716,15 @@ export default function AdminPage() {
     window.open(data.signedUrl, '_blank');
   }
 
-  // Busca telefone do colaborador na tabela employees ou nos módulos antigos
   function obterContatoPorCpf(cpf) {
     const cpfLimpo = (cpf || '').replace(/\D/g, '');
-    
-    // 1. Tenta achar na base oficial de funcionários
     const colab = colaboradores.find(e => e.cpf === cpfLimpo);
     if (colab) {
       let fone = (colab.phone || '').replace(/\D/g, '');
       if (fone && !fone.startsWith('55') && fone.length <= 11) fone = '55' + fone;
       return { phone: fone, email: colab.email || '' };
     }
-
-    // 2. Tenta em candidatos (R&S)
-    const achado = candidates.find(c => {
-      const cCpf = (c.custom_data?.['CPF'] || '').replace(/\D/g, '');
-      return cCpf && cCpf === cpfLimpo;
-    });
-    let fone = '';
-    let mail = '';
-    if (achado) {
-      fone = achado.phone || achado.custom_data?.['WhatsApp / Telefone'] || '';
-      mail = achado.email || achado.custom_data?.['E-mail'] || '';
-    }
-    fone = (fone || '').replace(/\D/g, '');
-    if (fone && !fone.startsWith('55') && fone.length <= 11) fone = '55' + fone;
-    return { phone: fone, email: mail };
+    return { phone: '', email: '' };
   }
 
   async function handleDispararHoleriteWhatsApp(holerite) {
@@ -792,7 +737,6 @@ export default function AdminPage() {
       fone = foneInformado.replace(/\D/g, '');
       if (!fone.startsWith('55') && fone.length <= 11) fone = '55' + fone;
 
-      // Salva automaticamente na base de colaboradores para não pedir novamente
       await supabase.from('employees').upsert({
         cpf: holerite.cpf,
         full_name: holerite.employee_name,
@@ -983,7 +927,7 @@ export default function AdminPage() {
           <div onClick={() => setModuloAtivo('dp')} style={{ background: '#fff', border: '2px solid #003366', borderRadius: '10px', padding: '24px', cursor: 'pointer', boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}>
             <span style={{ fontSize: '32px' }}>🔵</span>
             <h3 style={{ color: '#003366', margin: '12px 0 6px 0', fontSize: '18px' }}>Módulo Departamento Pessoal (DP)</h3>
-            <p style={{ color: '#64748b', fontSize: '13.5px', margin: 0 }}>Cadastro oficial de colaboradores (telefone/email), fatiamento do Senior HCM e disparos seguros.</p>
+            <p style={{ color: '#64748b', fontSize: '13.5px', margin: 0 }}>Base de colaboradores via Senior HCM (.xlsx), fatiamento seguro de folha e atendimento.</p>
           </div>
 
           <div onClick={() => setModuloAtivo('usuarios')} style={{ background: '#fff', border: '2px solid #64748b', borderRadius: '10px', padding: '24px', cursor: 'pointer', boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}>
@@ -1251,157 +1195,194 @@ export default function AdminPage() {
           {/* SUB-ABA DP 1: BASE DE COLABORADORES */}
           {abaDP === 'colaboradores' && (
             <div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', marginBottom: '24px' }}>
-                {/* Cadastrar Colaborador Avulso */}
-                <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
-                  <h3 style={{ margin: '0 0 10px 0', color: '#003366', fontSize: '16px' }}>+ Novo Colaborador (ou Atualizar)</h3>
-                  <form onSubmit={handleCadastrarColaborador} style={{ display: 'grid', gap: '8px' }}>
-                    <input placeholder="CPF (somente números)" value={novoColabCpf} onChange={e => setNovoColabCpf(e.target.value)} required style={{ padding: '8px 10px', borderRadius: '5px', border: '1px solid #cbd5e1' }} />
-                    <input placeholder="Nome Completo" value={novoColabNome} onChange={e => setNovoColabNome(e.target.value)} required style={{ padding: '8px 10px', borderRadius: '5px', border: '1px solid #cbd5e1' }} />
-                    <input placeholder="Matrícula (ex: 1.015344)" value={novoColabMatricula} onChange={e => setNovoColabMatricula(e.target.value)} style={{ padding: '8px 10px', borderRadius: '5px', border: '1px solid #cbd5e1' }} />
-                    <input placeholder="WhatsApp com DDD (ex: 43999999999)" value={novoColabTelefone} onChange={e => setNovoColabTelefone(e.target.value)} style={{ padding: '8px 10px', borderRadius: '5px', border: '1px solid #cbd5e1' }} />
-                    <input type="email" placeholder="E-mail (opcional)" value={novoColabEmail} onChange={e => setNovoColabEmail(e.target.value)} style={{ padding: '8px 10px', borderRadius: '5px', border: '1px solid #cbd5e1' }} />
-                    <button type="submit" style={{ padding: '10px', background: '#003366', color: '#fff', border: 'none', borderRadius: '5px', fontWeight: 'bold', cursor: 'pointer', marginTop: '4px' }}>Salvar Cadastro</button>
-                  </form>
+              {/* Importação de Arquivo Excel (.xlsx) do Senior HCM */}
+              <div style={{ background: '#fff', padding: '20px', borderRadius: '8px', border: '2px dashed #003366', marginBottom: '20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                  <span style={{ fontSize: '28px' }}>📊</span>
+                  <div>
+                    <h3 style={{ margin: 0, color: '#003366', fontSize: '16px' }}>Importar Planilha do Senior HCM (.xlsx)</h3>
+                    <p style={{ margin: 0, fontSize: '12.5px', color: '#64748b' }}>
+                      Selecione a planilha exportada com Cadastro, Nome, CPF, Dt.Nasc, DDD, Telefone e Email.
+                    </p>
+                  </div>
                 </div>
 
-                {/* Importação de Arquivo Excel (.xlsx) do Senior HCM */}
-                <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '2px dashed #003366' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '24px' }}>📊</span>
-                    <div>
-                      <h3 style={{ margin: 0, color: '#003366', fontSize: '16px' }}>Importar Planilha Senior HCM (.xlsx)</h3>
-                      <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>
-                        Selecione a planilha exportada com Cadastro, Nome, CPF, Dt.Nasc, DDD, Telefone e Email.
-                      </p>
-                    </div>
-                  </div>
+                <input
+                  type="file"
+                  accept=".xlsx, .xls"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
 
-                  <input
-                    type="file"
-                    accept=".xlsx, .xls"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
+                    const confirmar = confirm(`Deseja processar o arquivo "${file.name}" e sincronizar a base oficial de colaboradores?`);
+                    if (!confirmar) {
+                      e.target.value = '';
+                      return;
+                    }
 
-                      const confirmar = confirm(`Processar o arquivo "${file.name}" e atualizar a base de colaboradores?`);
-                      if (!confirmar) {
-                        e.target.value = '';
+                    try {
+                      const buffer = await file.arrayBuffer();
+                      const workbook = XLSX.read(buffer, { type: 'array' });
+                      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                      const rows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+                      if (rows.length === 0) {
+                        alert('A planilha selecionada está vazia.');
                         return;
                       }
 
-                      try {
-                        const buffer = await file.arrayBuffer();
-                        const workbook = XLSX.read(buffer, { type: 'array' });
-                        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-                        const rows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+                      const registros = [];
 
-                        if (rows.length === 0) {
-                          alert('A planilha está vazia.');
-                          return;
-                        }
+                      for (const r of rows) {
+                        const rawCpf = String(r['CPF'] || r['cpf'] || '').replace(/\D/g, '');
+                        const nome = String(r['Nome'] || r['NOME'] || '').trim();
+                        const cadastro = String(r['Cadastro'] || r['CADASTRO'] || r['Matricula'] || '').trim();
+                        const dtNasc = String(r['Dt.Nasc'] || r['DT.NASC'] || r['Nascimento'] || '').trim();
+                        const ddd = String(r['DDD'] || r['ddd'] || '43').replace(/\D/g, '');
+                        const telBruto = String(r['Telefone'] || r['TELEFONE'] || '').trim();
+                        const email = String(r['Email'] || r['EMAIL'] || '').trim().toLowerCase();
 
-                        const registros = [];
+                        if (rawCpf.length === 11 && nome) {
+                          // Trata múltiplos telefones separados por barra (ex: 988094761/984340752)
+                          const primeiroTel = telBruto.split(/[\/\-;,]/)[0].replace(/\D/g, '');
+                          let foneFinal = '';
 
-                        for (const r of rows) {
-                          const rawCpf = String(r['CPF'] || r['cpf'] || '').replace(/\D/g, '');
-                          const nome = String(r['Nome'] || r['NOME'] || '').trim();
-                          const cadastro = String(r['Cadastro'] || r['CADASTRO'] || r['Matricula'] || '').trim();
-                          const dtNasc = String(r['Dt.Nasc'] || r['DT.NASC'] || r['Nascimento'] || '').trim();
-                          const ddd = String(r['DDD'] || r['ddd'] || '43').replace(/\D/g, '');
-                          const telBruto = String(r['Telefone'] || r['TELEFONE'] || '').trim();
-                          const email = String(r['Email'] || r['EMAIL'] || '').trim().toLowerCase();
-
-                          if (rawCpf.length === 11 && nome) {
-                            // Trata múltiplos telefones separados por barra (ex: 988094761/984340752)
-                            const primeiroTel = telBruto.split(/[\/\-;,]/)[0].replace(/\D/g, '');
-                            let foneFinal = '';
-
-                            if (primeiroTel.length >= 8) {
-                              foneFinal = `55${ddd}${primeiroTel}`;
-                            }
-
-                            registros.push({
-                              cpf: rawCpf,
-                              full_name: nome,
-                              registration_number: cadastro || null,
-                              birth_date: dtNasc || null,
-                              phone: foneFinal || null,
-                              email: email && email.includes('@') ? email : null,
-                              updated_at: new Date().toISOString()
-                            });
+                          if (primeiroTel.length >= 8) {
+                            foneFinal = `55${ddd}${primeiroTel}`;
                           }
-                        }
 
-                        if (registros.length === 0) {
-                          alert('Nenhum colaborador válido encontrado na planilha. Verifique as colunas CPF e Nome.');
-                          return;
+                          registros.push({
+                            cpf: rawCpf,
+                            full_name: nome,
+                            registration_number: cadastro || null,
+                            birth_date: dtNasc || null,
+                            phone: foneFinal || null,
+                            email: email && email.includes('@') ? email : null,
+                            updated_at: new Date().toISOString()
+                          });
                         }
-
-                        const { error } = await supabase
-                          .from('employees')
-                          .upsert(registros, { onConflict: 'cpf' });
-
-                        if (!error) {
-                          alert(`✅ Sucesso! ${registros.length} colaboradores foram importados/atualizados na base oficial.`);
-                          carregarDados();
-                        } else {
-                          alert('Erro ao sincronizar com o banco: ' + error.message);
-                        }
-                      } catch (err) {
-                        alert('Falha ao ler o arquivo Excel: ' + err.message);
-                      } finally {
-                        e.target.value = '';
                       }
-                    }}
-                    style={{ padding: '8px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', cursor: 'pointer', width: '100%', boxSizing: 'border-box' }}
-                  />
-                </div>
+
+                      if (registros.length === 0) {
+                        alert('Nenhum colaborador válido encontrado na planilha. Verifique os títulos das colunas (CPF e Nome).');
+                        return;
+                      }
+
+                      const { error } = await supabase
+                        .from('employees')
+                        .upsert(registros, { onConflict: 'cpf' });
+
+                      if (!error) {
+                        alert(`✅ Sucesso! ${registros.length} colaboradores foram sincronizados na base oficial.`);
+                        carregarDados();
+                      } else {
+                        alert('Erro ao sincronizar com o banco: ' + error.message);
+                      }
+                    } catch (err) {
+                      alert('Falha ao processar o arquivo Excel: ' + err.message);
+                    } finally {
+                      e.target.value = '';
+                    }
+                  }}
+                  style={{ padding: '8px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', cursor: 'pointer', width: '100%', boxSizing: 'border-box' }}
+                />
               </div>
 
-              {/* Tabela de Colaboradores com Busca */}
+              {/* Mensagem Padrão de Apresentação e Convite ao Portal */}
+              <div style={{ background: '#fff', padding: '16px 20px', borderRadius: '8px', border: '1px solid #cbd5e1', marginBottom: '20px' }}>
+                <strong style={{ color: '#003366', fontSize: '14.5px', display: 'block', marginBottom: '6px' }}>
+                  💬 Modelo da Mensagem de Convite / Apresentação do Portal aos Colaboradores
+                </strong>
+                <textarea
+                  rows={4}
+                  value={mensagemConvitePortal}
+                  onChange={e => setMensagemConvitePortal(e.target.value)}
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px' }}
+                />
+              </div>
+
+              {/* Tabela de Colaboradores nos mesmos moldes do Senior HCM */}
               <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
-                  <h3 style={{ margin: 0, color: '#003366', fontSize: '16px' }}>Colaboradores Ativos ({colaboradoresFiltrados.length})</h3>
-                  <input
-                    type="text"
-                    placeholder="🔍 Buscar por nome, CPF ou matrícula..."
-                    value={buscaColaborador}
-                    onChange={e => setBuscaColaborador(e.target.value)}
-                    style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', width: '280px' }}
-                  />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <h3 style={{ margin: 0, color: '#003366', fontSize: '16px' }}>Base de Colaboradores ({colaboradoresFiltrados.length})</h3>
+                    <button
+                      onClick={handleLimparTodaBaseColaboradores}
+                      style={{ padding: '6px 12px', background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '5px', fontWeight: 'bold', fontSize: '12px', cursor: 'pointer' }}
+                      title="Excluir todos os colaboradores da base oficial"
+                    >
+                      🗑️ Limpar Toda a Base
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <input
+                      type="text"
+                      placeholder="🔍 Buscar por nome, CPF ou matrícula..."
+                      value={buscaColaborador}
+                      onChange={e => setBuscaColaborador(e.target.value)}
+                      style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', width: '260px', fontSize: '13px' }}
+                    />
+
+                    <button
+                      onClick={handleDispararConviteLote}
+                      style={{ padding: '8px 14px', background: '#25D366', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      🚀 Convidar em Lote (Fila)
+                    </button>
+                  </div>
                 </div>
 
-                <div style={{ maxHeight: '420px', overflowY: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <div style={{ maxHeight: '460px', overflowY: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left', color: '#475569' }}>
-                        <th style={{ padding: '8px' }}>Nome</th>
-                        <th style={{ padding: '8px' }}>CPF</th>
-                        <th style={{ padding: '8px' }}>Matrícula</th>
-                        <th style={{ padding: '8px' }}>WhatsApp</th>
-                        <th style={{ padding: '8px' }}>E-mail</th>
-                        <th style={{ padding: '8px', textAlign: 'center' }}>Ações</th>
+                        <th style={{ padding: '10px 8px' }}>Cadastro</th>
+                        <th style={{ padding: '10px 8px' }}>Nome</th>
+                        <th style={{ padding: '10px 8px' }}>CPF</th>
+                        <th style={{ padding: '10px 8px' }}>Dt.Nasc</th>
+                        <th style={{ padding: '10px 8px' }}>Telefone</th>
+                        <th style={{ padding: '10px 8px' }}>Email</th>
+                        <th style={{ padding: '10px 8px', textAlign: 'center' }}>Ações</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {colaboradoresFiltrados.map((c) => (
-                        <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '8px', fontWeight: 'bold' }}>{c.full_name}</td>
-                          <td style={{ padding: '8px' }}>{c.cpf}</td>
-                          <td style={{ padding: '8px' }}>{c.registration_number || '-'}</td>
-                          <td style={{ padding: '8px', color: c.phone ? '#0c5e31' : '#b91c1c' }}>{c.phone || 'Sem celular'}</td>
-                          <td style={{ padding: '8px' }}>{c.email || '-'}</td>
-                          <td style={{ padding: '8px', textAlign: 'center' }}>
-                            <button
-                              onClick={() => handleExcluirColaborador(c.id, c.full_name)}
-                              style={{ padding: '4px 8px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}
-                            >
-                              🗑️
-                            </button>
+                      {colaboradoresFiltrados.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>
+                            Nenhum colaborador encontrado. Importe o relatório em Excel (.xlsx) acima.
                           </td>
                         </tr>
-                      ))}
+                      ) : (
+                        colaboradoresFiltrados.map((c) => (
+                          <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '8px', fontWeight: 'bold', color: '#003366' }}>{c.registration_number || '-'}</td>
+                            <td style={{ padding: '8px', fontWeight: 'bold' }}>{c.full_name}</td>
+                            <td style={{ padding: '8px' }}>{c.cpf}</td>
+                            <td style={{ padding: '8px' }}>{c.birth_date || '-'}</td>
+                            <td style={{ padding: '8px', color: c.phone ? '#0c5e31' : '#b91c1c', fontWeight: c.phone ? '500' : 'normal' }}>
+                              {c.phone || 'Sem telefone'}
+                            </td>
+                            <td style={{ padding: '8px', color: '#64748b' }}>{c.email || '-'}</td>
+                            <td style={{ padding: '8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                              <button
+                                onClick={() => dispararConviteIndividualWhatsApp(c)}
+                                style={{ padding: '4px 8px', background: '#25D366', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', marginRight: '6px' }}
+                                title="Enviar convite de acesso via WhatsApp"
+                              >
+                                📲 Convidar
+                              </button>
+                              <button
+                                onClick={() => handleExcluirColaborador(c.id, c.full_name)}
+                                style={{ padding: '4px 6px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}
+                                title="Remover este colaborador"
+                              >
+                                🗑️
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
