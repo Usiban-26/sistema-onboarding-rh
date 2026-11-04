@@ -1200,7 +1200,7 @@ export default function AdminPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                   <span style={{ fontSize: '28px' }}>📊</span>
                   <div>
-                    <h3 style={{ margin: 0, color: '#003366', fontSize: '16px' }}>Importar Planilha do Senior HCM (.xlsx)</h3>
+                    <h3 style={{ margin: 0, color: '#003366', fontSize: '16px' }}>Importar Planilha do Senior HCM (.xlsx) Relatório 913</h3>
                     <p style={{ margin: 0, fontSize: '12.5px', color: '#64748b' }}>
                       Selecione a planilha exportada com Cadastro, Nome, CPF, Dt.Nasc, DDD, Telefone e Email.
                     </p>
