@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import * as XLSX from 'xlsx';
+import { PDFDocument } from 'pdf-lib';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co',
@@ -652,40 +653,64 @@ export default function AdminPage() {
     }
 
     const confirma = confirm(
-      `⚠️ CONFERÊNCIA OBRIGATÓRIA DE COMPETÊNCIA ⚠️\n\nVocê está prestes a importar os holerites para a competência:\n👉 "${competenciaSelecionada}"\n\nArquivo selecionado: "${arquivoSenior.name}"\n\nVocê confirma que este arquivo pertence exatamente a esta competência?`
+      `⚠️ CONFERÊNCIA OBRIGATÓRIA DE COMPETÊNCIA ⚠️\n\nVocê está prestes a importar os holerites para a competência:\n👉 "${competenciaSelecionada}"\n\nArquivo selecionado: "${arquivoSenior.name}"\n\nConfirma o processamento?`
     );
 
     if (!confirma) return;
 
     setProcessandoPdf(true);
-    setStatusProcessamento('Fatiando páginas e cadastrando colaboradores...');
+    setStatusProcessamento('Carregando PDF completo no navegador...');
 
     try {
-      const formData = new FormData();
-      formData.append('file', arquivoSenior);
-      formData.append('competence', competenciaSelecionada);
+      const arrayBuffer = await arquivoSenior.arrayBuffer();
+      const pdfDocOriginal = await PDFDocument.load(arrayBuffer);
+      const totalPaginas = pdfDocOriginal.getPageCount();
 
-      const resposta = await fetch('/api/dp/split-payrolls', {
-        method: 'POST',
-        body: formData,
-      });
+      let processadosComSucesso = 0;
+      let ignorados = 0;
 
-      const resultado = await resposta.json();
+      setStatusProcessamento(`Iniciando fatiamento de ${totalPaginas} páginas...`);
 
-      if (resultado.success) {
-        setStatusProcessamento(resultado.message || 'Processamento concluído com sucesso!');
-        setArquivoSenior(null);
-        const inputFile = document.getElementById('input-folha-senior');
-        if (inputFile) inputFile.value = '';
-        carregarDados();
-        alert(`✅ Sucesso!\n${resultado.message}`);
-      } else {
-        setStatusProcessamento(`⚠️ Erro: ${resultado.error}`);
-        alert(resultado.error);
+      for (let i = 0; i < totalPaginas; i++) {
+        setStatusProcessamento(`Processando página ${i + 1} de ${totalPaginas} (${Math.round(((i + 1) / totalPaginas) * 100)}%)...`);
+
+        // Cria PDF de página única no navegador
+        const singlePageDoc = await PDFDocument.create();
+        const [copiedPage] = await singlePageDoc.copyPages(pdfDocOriginal, [i]);
+        singlePageDoc.addPage(copiedPage);
+        const singlePdfBytes = await singlePageDoc.save();
+
+        const blob = new Blob([singlePdfBytes], { type: 'application/pdf' });
+        const formData = new FormData();
+        formData.append('file', blob, `page_${i + 1}.pdf`);
+        formData.append('competence', competenciaSelecionada);
+
+        const resp = await fetch('/api/dp/process-single-page', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (resp.ok) {
+          const resultado = await resp.json();
+          if (resultado.success) {
+            processadosComSucesso++;
+          } else {
+            ignorados++;
+          }
+        } else {
+          ignorados++;
+        }
       }
+
+      setStatusProcessamento(`✅ Concluído! ${processadosComSucesso} holerites importados com sucesso.`);
+      setArquivoSenior(null);
+      const inputFile = document.getElementById('input-folha-senior');
+      if (inputFile) inputFile.value = '';
+      carregarDados();
+      alert(`✅ Processamento Concluído!\n\nTotal de páginas: ${totalPaginas}\nHolerites salvos: ${processadosComSucesso}\nPáginas ignoradas/sem CPF: ${ignorados}`);
     } catch (err) {
-      setStatusProcessamento('Falha na comunicação com a API de fatiamento.');
-      alert('Falha na requisição: ' + err.message);
+      setStatusProcessamento(`Falha no processamento: ${err.message}`);
+      alert('Erro ao processar PDF: ' + err.message);
     }
 
     setProcessandoPdf(false);
