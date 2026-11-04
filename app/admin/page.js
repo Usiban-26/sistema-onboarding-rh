@@ -1393,29 +1393,54 @@ export default function AdminPage() {
           {/* SUB-ABA DP 2: GESTÃO DE HOLERITES */}
           {abaDP === 'holerites' && (
             <div>
-              {/* Configuração Dinâmica do WhatsApp do DP */}
+              {/* Configuração Dinâmica do WhatsApp do DP (Protegida) */}
               <div style={{ background: '#fff', padding: '18px 22px', borderRadius: '10px', border: '1px solid #cbd5e1', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
                 <div>
-                  <h3 style={{ margin: '0 0 4px 0', color: '#003366', fontSize: '16px' }}>📱 Canal WhatsApp de Atendimento ao Colaborador</h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <h3 style={{ margin: '0 0 4px 0', color: '#003366', fontSize: '16px' }}>📱 Canal WhatsApp de Atendimento ao Colaborador</h3>
+                    {usuarioLogado.role !== 'admin' && (
+                      <span style={{ fontSize: '11px', background: '#f1f5f9', color: '#64748b', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+                        🔒 Apenas Leitura
+                      </span>
+                    )}
+                  </div>
                   <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
-                    Número corporativo do DP que receberá as dúvidas e solicitações enviadas pela Central do Colaborador.
+                    {usuarioLogado.role === 'admin' 
+                      ? 'Número corporativo do DP que receberá as dúvidas e solicitações enviadas pela Central do Colaborador.'
+                      : 'Número corporativo oficial ativo. Apenas Administradores Gerais podem alterá-lo.'}
                   </p>
                 </div>
-                <form onSubmit={handleSalvarTelefoneDP} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <input
-                    type="text"
-                    placeholder="Ex: 5543999999999"
-                    value={telefoneAtendimentoDP}
-                    onChange={e => setTelefoneAtendimentoDP(e.target.value)}
-                    style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', minWidth: '180px' }}
-                  />
-                  <button
-                    type="submit"
-                    style={{ padding: '8px 16px', background: '#003366', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
+
+                {usuarioLogado.role === 'admin' ? (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const confirma = confirm(`Confirma a alteração do número de atendimento do DP para:\n👉 ${telefoneAtendimentoDP}\n\nTodos os colaboradores da USIBAN passarão a ser direcionados para este número.`);
+                      if (confirma) {
+                        handleSalvarTelefoneDP(e);
+                      }
+                    }}
+                    style={{ display: 'flex', gap: '8px', alignItems: 'center' }}
                   >
-                    Salvar Número
-                  </button>
-                </form>
+                    <input
+                      type="text"
+                      placeholder="Ex: 5543999999999"
+                      value={telefoneAtendimentoDP}
+                      onChange={e => setTelefoneAtendimentoDP(e.target.value)}
+                      style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', minWidth: '180px' }}
+                    />
+                    <button
+                      type="submit"
+                      style={{ padding: '8px 16px', background: '#003366', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
+                    >
+                      Salvar Número
+                    </button>
+                  </form>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f8fafc', padding: '8px 16px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                    <strong style={{ color: '#003366', fontSize: '14px', letterSpacing: '0.5px' }}>{telefoneAtendimentoDP || 'Não configurado'}</strong>
+                  </div>
+                )}
               </div>
 
               {/* Modal Gerenciar Competências */}
