@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import * as XLSX from 'xlsx';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co',
@@ -1264,22 +1265,97 @@ export default function AdminPage() {
                   </form>
                 </div>
 
-                {/* Importação em Lote via Excel/CSV */}
-                <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
-                  <h3 style={{ margin: '0 0 6px 0', color: '#003366', fontSize: '16px' }}>📥 Importar Lote (Senior HCM / Excel)</h3>
-                  <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#64748b' }}>
-                    Copie e cole as colunas na ordem: <b>CPF ; Nome ; Telefone ; Email ; Matrícula</b>
-                  </p>
-                  <form onSubmit={handleImportarLoteColaboradores} style={{ display: 'grid', gap: '8px' }}>
-                    <textarea
-                      rows={5}
-                      placeholder="07494053921; Alessandro de Oliveira; 43999998888; alessandro@usiban.com.br; 1.015344&#10;22508337889; Marcio Alberto Virgili; 43988887777; marcio@usiban.com.br; 1.015392"
-                      value={loteColaboradores}
-                      onChange={e => setLoteColaboradores(e.target.value)}
-                      style={{ padding: '8px 10px', borderRadius: '5px', border: '1px solid #cbd5e1', fontSize: '12.5px', fontFamily: 'monospace' }}
-                    />
-                    <button type="submit" style={{ padding: '10px', background: '#0c5e31', color: '#fff', border: 'none', borderRadius: '5px', fontWeight: 'bold', cursor: 'pointer' }}>Processar e Importar Lote</button>
-                  </form>
+                {/* Importação de Arquivo Excel (.xlsx) do Senior HCM */}
+                <div style={{ background: '#fff', padding: '18px', borderRadius: '8px', border: '2px dashed #003366' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '24px' }}>📊</span>
+                    <div>
+                      <h3 style={{ margin: 0, color: '#003366', fontSize: '16px' }}>Importar Planilha Senior HCM (.xlsx)</h3>
+                      <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>
+                        Selecione a planilha exportada com Cadastro, Nome, CPF, Dt.Nasc, DDD, Telefone e Email.
+                      </p>
+                    </div>
+                  </div>
+
+                  <input
+                    type="file"
+                    accept=".xlsx, .xls"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+
+                      const confirmar = confirm(`Processar o arquivo "${file.name}" e atualizar a base de colaboradores?`);
+                      if (!confirmar) {
+                        e.target.value = '';
+                        return;
+                      }
+
+                      try {
+                        const buffer = await file.arrayBuffer();
+                        const workbook = XLSX.read(buffer, { type: 'array' });
+                        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                        const rows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+                        if (rows.length === 0) {
+                          alert('A planilha está vazia.');
+                          return;
+                        }
+
+                        const registros = [];
+
+                        for (const r of rows) {
+                          const rawCpf = String(r['CPF'] || r['cpf'] || '').replace(/\D/g, '');
+                          const nome = String(r['Nome'] || r['NOME'] || '').trim();
+                          const cadastro = String(r['Cadastro'] || r['CADASTRO'] || r['Matricula'] || '').trim();
+                          const dtNasc = String(r['Dt.Nasc'] || r['DT.NASC'] || r['Nascimento'] || '').trim();
+                          const ddd = String(r['DDD'] || r['ddd'] || '43').replace(/\D/g, '');
+                          const telBruto = String(r['Telefone'] || r['TELEFONE'] || '').trim();
+                          const email = String(r['Email'] || r['EMAIL'] || '').trim().toLowerCase();
+
+                          if (rawCpf.length === 11 && nome) {
+                            // Trata múltiplos telefones separados por barra (ex: 988094761/984340752)
+                            const primeiroTel = telBruto.split(/[\/\-;,]/)[0].replace(/\D/g, '');
+                            let foneFinal = '';
+
+                            if (primeiroTel.length >= 8) {
+                              foneFinal = `55${ddd}${primeiroTel}`;
+                            }
+
+                            registros.push({
+                              cpf: rawCpf,
+                              full_name: nome,
+                              registration_number: cadastro || null,
+                              birth_date: dtNasc || null,
+                              phone: foneFinal || null,
+                              email: email && email.includes('@') ? email : null,
+                              updated_at: new Date().toISOString()
+                            });
+                          }
+                        }
+
+                        if (registros.length === 0) {
+                          alert('Nenhum colaborador válido encontrado na planilha. Verifique as colunas CPF e Nome.');
+                          return;
+                        }
+
+                        const { error } = await supabase
+                          .from('employees')
+                          .upsert(registros, { onConflict: 'cpf' });
+
+                        if (!error) {
+                          alert(`✅ Sucesso! ${registros.length} colaboradores foram importados/atualizados na base oficial.`);
+                          carregarDados();
+                        } else {
+                          alert('Erro ao sincronizar com o banco: ' + error.message);
+                        }
+                      } catch (err) {
+                        alert('Falha ao ler o arquivo Excel: ' + err.message);
+                      } finally {
+                        e.target.value = '';
+                      }
+                    }}
+                    style={{ padding: '8px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', cursor: 'pointer', width: '100%', boxSizing: 'border-box' }}
+                  />
                 </div>
               </div>
 
