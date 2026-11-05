@@ -20,16 +20,25 @@ function sanitizarNome(texto) {
   return palavras.join(' ').trim();
 }
 
-function extrairCabecalhoSenior(pageText) {
+function extrairDadosSenior(pageText) {
   let matricula = null;
   let nomeEncontrado = 'Colaborador';
   const textoLinear = pageText.replace(/[\r\n]+/g, ' ');
 
-  const matchMatricula = textoLinear.match(/\b(\d{1,6}\.\d{4,8})\b/);
-  if (matchMatricula) {
-    matricula = matchMatricula[1].trim();
+  // 1. Extração da Matrícula (Com ponto: 101.014698, 1.015083 OU Puro: 25150, 16128)
+  const matchComPonto = textoLinear.match(/\b(\d{1,6}\.\d{4,8})\b/);
+  if (matchComPonto) {
+    matricula = matchComPonto[1].trim();
+  } else {
+    // Procura número de 4 a 8 dígitos logo após CADASTRO ou antes do Nome
+    const matchCadastro = textoLinear.match(/(?:CADASTRO|Cadastro)\s*[:.-]?\s*(\d{4,8})\b/)
+                       || textoLinear.match(/\b(\d{4,8})\s+[A-ZÀ-Ú]/);
+    if (matchCadastro) {
+      matricula = matchCadastro[1].trim();
+    }
   }
 
+  // 2. Extração do Nome
   const regexAntesDaData = new RegExp('([A-ZÀ-Ú][A-ZÀ-Ú\\s]{3,60}?)\\s*\\d{2}/\\d{2}/\\d{4}');
   const matchNome = textoLinear.match(regexAntesDaData);
 
@@ -52,7 +61,7 @@ export async function POST(request) {
     const { pageText, competence } = await request.json();
 
     if (!pageText || !competence) {
-      return NextResponse.json({ error: 'Texto da página ou competência não informados.' }, { status: 400 });
+      return NextResponse.json({ error: 'Dados incompletos.' }, { status: 400 });
     }
 
     // Extração do CPF
@@ -63,15 +72,31 @@ export async function POST(request) {
     const rawCpf = cpfMatch ? (cpfMatch[1] || cpfMatch[0]).replace(/\D/g, '') : null;
 
     if (!rawCpf || rawCpf.length !== 11) {
-      const preview = pageText.slice(0, 200).replace(/\s+/g, ' ');
-      return NextResponse.json({ error: `CPF não encontrado. Amostra: "${preview}"` }, { status: 422 });
+      const preview = pageText.slice(0, 160).replace(/\s+/g, ' ');
+      return NextResponse.json({ error: `Sem CPF válido. Amostra: "${preview}"` }, { status: 422 });
     }
 
-    const { matricula, nomeEncontrado } = extrairCabecalhoSenior(pageText);
+    let { matricula, nomeEncontrado } = extrairDadosSenior(pageText);
+
+    // Fallback inteligente: se a matrícula ou nome não foram bem lidos, consulta a base oficial 'employees'
+    const { data: colabOficial } = await supabase
+      .from('employees')
+      .select('registration_number, full_name')
+      .eq('cpf', rawCpf)
+      .maybeSingle();
+
+    if (colabOficial) {
+      if (!matricula && colabOficial.registration_number) {
+        matricula = colabOficial.registration_number;
+      }
+      if (nomeEncontrado === 'Colaborador' && colabOficial.full_name) {
+        nomeEncontrado = colabOficial.full_name;
+      }
+    }
+
     const safeCompetence = competence.replace('/', '-');
     const fileName = `${safeCompetence}/${rawCpf}.pdf`;
 
-    // Atualiza metadados no banco de dados
     const { error: dbError } = await supabase
       .from('employee_payrolls')
       .upsert({
@@ -90,7 +115,8 @@ export async function POST(request) {
     return NextResponse.json({ 
       success: true, 
       cpf: rawCpf, 
-      name: nomeEncontrado,
+      name: nomeEncontrado, 
+      matricula,
       fileName 
     });
   } catch (err) {
