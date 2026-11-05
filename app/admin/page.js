@@ -158,12 +158,31 @@ export default function AdminPage() {
       if (!competenciaSelecionada) setCompetenciaSelecionada(padroes[0].code);
     }
 
-    // 6. Holerites do DP
-    const { data: payrollsData } = await supabase
-      .from('employee_payrolls')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (payrollsData) setPayrolls(payrollsData);
+    // 6. Holerites do DP (PAGINADOS: supera o limite de 1.000 do Supabase)
+    let todosHolerites = [];
+    let inicio = 0;
+    const passo = 1000;
+    let continuarBuscando = true;
+
+    while (continuarBuscando) {
+      const { data: lotePayrolls, error } = await supabase
+        .from('employee_payrolls')
+        .select('*')
+        .range(inicio, inicio + passo - 1)
+        .order('created_at', { ascending: false });
+
+      if (error || !lotePayrolls || lotePayrolls.length === 0) {
+        continuarBuscando = false;
+      } else {
+        todosHolerites = todosHolerites.concat(lotePayrolls);
+        if (lotePayrolls.length < passo) {
+          continuarBuscando = false;
+        } else {
+          inicio += passo;
+        }
+      }
+    }
+    setPayrolls(todosHolerites);
 
     // 7. Base Oficial de Colaboradores (employees)
     const { data: colabData } = await supabase
@@ -662,7 +681,6 @@ export default function AdminPage() {
     setStatusProcessamento('Carregando biblioteca do leitor de PDF no navegador...');
 
     try {
-      // Carrega o motor PDF.js nativo via CDN dinâmico no navegador se ainda não existir
       if (!window.pdfjsLib) {
         await new Promise((resolve, reject) => {
           const script = document.createElement('script');
@@ -678,92 +696,111 @@ export default function AdminPage() {
 
       setStatusProcessamento('Carregando arquivo de 1429 páginas na memória...');
       const arrayBuffer = await arquivoSenior.arrayBuffer();
-
-      // Carrega no PDF.js para extração instantânea de texto
       const pdfJsDoc = await window.pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
       const totalPaginas = pdfJsDoc.numPages;
-
-      // Carrega no pdf-lib para fatiar o binário
       const pdfDocOriginal = await PDFDocument.load(arrayBuffer);
 
-      // Função que processa uma página de ponta a ponta
+      let processadosComSucesso = 0;
+      const paginasIgnoradasLog = [];
+
       async function processarPaginaIndice(index) {
-        // 1. Extrai o texto da página no próprio navegador
-        const page = await pdfJsDoc.getPage(index + 1);
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items.map(item => item.str).join(' ');
+        const pageNum = index + 1;
+        try {
+          const page = await pdfJsDoc.getPage(pageNum);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items.map(item => item.str).join(' ');
 
-        // 2. Valida CPF e metadados via API leve (apenas texto, 1 KB de dados)
-        const respMeta = await fetch('/api/dp/process-single-page', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pageText, competence: competenciaSelecionada })
-        });
+          if (!pageText.trim()) {
+            paginasIgnoradasLog.push({ pagina: pageNum, motivo: 'Página em branco' });
+            return null;
+          }
 
-        const metaData = await respMeta.json();
-        if (!respMeta.ok || !metaData.success) {
-          throw new Error(`Página ${index + 1}: ${metaData.error || 'Falha ao validar texto'}`);
-        }
-
-        // 3. Fatia a página e sobe DIRETO para o Supabase Storage (sem limite da Vercel)
-        const singlePageDoc = await PDFDocument.create();
-        const [copiedPage] = await singlePageDoc.copyPages(pdfDocOriginal, [index]);
-        singlePageDoc.addPage(copiedPage);
-        const singlePdfBytes = await singlePageDoc.save();
-
-        const { error: uploadError } = await supabase.storage
-          .from('holerites')
-          .upload(metaData.fileName, singlePdfBytes, {
-            contentType: 'application/pdf',
-            upsert: true
+          // Valida e salva metadados via rota leve (apenas texto, 1 KB)
+          const respMeta = await fetch('/api/dp/process-single-page', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pageText, competence: competenciaSelecionada })
           });
 
-        if (uploadError) {
-          throw new Error(`Página ${index + 1}: Erro no upload Storage - ${uploadError.message}`);
+          const metaData = await respMeta.json();
+          if (!respMeta.ok || !metaData.success) {
+            paginasIgnoradasLog.push({ pagina: pageNum, motivo: metaData.error || 'Sem CPF identificado' });
+            return null;
+          }
+
+          // Fatia página e faz upload DIRETO no Supabase Storage
+          const singlePageDoc = await PDFDocument.create();
+          const [copiedPage] = await singlePageDoc.copyPages(pdfDocOriginal, [index]);
+          singlePageDoc.addPage(copiedPage);
+          const singlePdfBytes = await singlePageDoc.save();
+
+          const { error: uploadError } = await supabase.storage
+            .from('holerites')
+            .upload(metaData.fileName, singlePdfBytes, {
+              contentType: 'application/pdf',
+              upsert: true
+            });
+
+          if (uploadError) {
+            paginasIgnoradasLog.push({ pagina: pageNum, motivo: `Erro Storage: ${uploadError.message}` });
+            return null;
+          }
+
+          processadosComSucesso++;
+          return metaData;
+        } catch (err) {
+          paginasIgnoradasLog.push({ pagina: pageNum, motivo: err.message });
+          return null;
         }
-
-        return metaData;
       }
 
-      // TESTE PILOTO NA PÁGINA 1 (Fail-Fast: aborta em 2 segundos se algo estiver errado)
+      // Validação rápida na página 1
       setStatusProcessamento('Validando 1º holerite (teste de conexão)...');
-      try {
-        await processarPaginaIndice(0);
-      } catch (errPrimeira) {
-        throw new Error(`Interrompido na 1ª página:\n${errPrimeira.message}`);
+      const testeP1 = await processarPaginaIndice(0);
+      if (!testeP1) {
+        const motivoErro = paginasIgnoradasLog[0]?.motivo || 'Erro ao processar página 1';
+        throw new Error(`Falha no primeiro holerite: ${motivoErro}`);
       }
 
-      // PROCESSAMENTO EM PARALELO (Pool de 8 páginas simultâneas diretas no Supabase)
-      let processadosComSucesso = 1;
-      let ignorados = 0;
-      const CONCORRENCIA = 8;
+      // Concorrência de 12 uploads simultâneos
+      const CONCORRENCIA = 12;
       const indicesRestantes = Array.from({ length: totalPaginas - 1 }, (_, i) => i + 1);
 
       for (let i = 0; i < indicesRestantes.length; i += CONCORRENCIA) {
         const lote = indicesRestantes.slice(i, i + CONCORRENCIA);
-
-        await Promise.all(
-          lote.map(async (pageIdx) => {
-            try {
-              await processarPaginaIndice(pageIdx);
-              processadosComSucesso++;
-            } catch (errItem) {
-              ignorados++;
-            }
-          })
-        );
+        await Promise.all(lote.map(idx => processarPaginaIndice(idx)));
 
         const atual = Math.min(i + CONCORRENCIA + 1, totalPaginas);
         const pct = Math.round((atual / totalPaginas) * 100);
-        setStatusProcessamento(`Processando diretamente no Storage: página ${atual} de ${totalPaginas} (${pct}%)...`);
+        setStatusProcessamento(`Processando diretamente no Storage: página ${atual} de ${totalPaginas} (${pct}%) • Sucessos: ${processadosComSucesso}...`);
       }
 
       setStatusProcessamento(`✅ Concluído! ${processadosComSucesso} holerites importados com sucesso.`);
       setArquivoSenior(null);
       const inputFile = document.getElementById('input-folha-senior');
       if (inputFile) inputFile.value = '';
-      carregarDados();
-      alert(`✅ Sucesso na Importação!\n\nTotal de páginas: ${totalPaginas}\nHolerites fatiados e salvos: ${processadosComSucesso}\nPáginas ignoradas: ${ignorados}`);
+      await carregarDados();
+
+      // Se houver páginas ignoradas, gera o download de um arquivo .txt de conferência
+      if (paginasIgnoradasLog.length > 0) {
+        const conteudoLog = paginasIgnoradasLog.map(p => `Página ${p.pagina}: ${p.motivo}`).join('\r\n');
+        const blobLog = new Blob([conteudoLog], { type: 'text/plain;charset=utf-8;' });
+        const urlLog = URL.createObjectURL(blobLog);
+        const link = document.createElement('a');
+        link.href = urlLog;
+        link.setAttribute('download', `paginas_ignoradas_${competenciaSelecionada.replace('/', '-')}.txt`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+
+      alert(
+        `✅ Processamento Concluído!\n\n` +
+        `• Total de Páginas: ${totalPaginas}\n` +
+        `• Holerites Salvos com Sucesso: ${processadosComSucesso}\n` +
+        `• Páginas Ignoradas: ${paginasIgnoradasLog.length}\n\n` +
+        (paginasIgnoradasLog.length > 0 ? `Um arquivo de texto com a lista das páginas ignoradas foi baixado automaticamente para conferência.` : '')
+      );
 
     } catch (err) {
       setStatusProcessamento(`❌ ${err.message}`);
@@ -772,7 +809,6 @@ export default function AdminPage() {
       setProcessandoPdf(false);
     }
   }
-
   async function handleLimparTodosHolerites() {
     const confirmacao = prompt(`⚠️ ATENÇÃO: Deseja apagar TODOS os holerites da competência "${competenciaSelecionada}"?\n\nDigite EXCLUIR para confirmar:`);
     if (confirmacao !== 'EXCLUIR') return;
