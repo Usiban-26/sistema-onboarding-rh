@@ -90,15 +90,14 @@ export default function AdminPage() {
     `Olá {NOME}, parabéns! Você avançou no processo seletivo da Usina Bandeirante (USIBAN). O seu próximo passo é preencher os seus dados e anexar os documentos admissionais pelo link oficial: ${LINK_OFICIAL_PORTAL}`
   );
 
+  // Estado para controle de pausa/cancelamento
+  const [pausarProcessamento, setPausarProcessamento] = useState(false);
+
+  // 1. CARREGAMENTO COMPLETO (PAGINADO ACIMA DE 1.000 REGISTROS)
   async function carregarDados() {
-    // 1. Candidatos R&S
-    const { data: candData } = await supabase
-      .from('onboarding_candidates')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const { data: candData } = await supabase.from('onboarding_candidates').select('*').order('created_at', { ascending: false });
     if (candData) setCandidates(candData);
 
-    // 2. Documentos de Candidatos
     const { data: docsData } = await supabase.from('candidate_documents').select('*');
     if (docsData) {
       const agrupados = {};
@@ -109,100 +108,54 @@ export default function AdminPage() {
       setCandidateDocs(agrupados);
     }
 
-    // 3. Documentos Exigidos & Campos Pessoais
-    const { data: reqDocs } = await supabase
-      .from('required_documents')
-      .select('*')
-      .eq('is_active', true)
-      .order('created_at', { ascending: true });
+    const { data: reqDocs } = await supabase.from('required_documents').select('*').eq('is_active', true);
     if (reqDocs) setRequiredDocs(reqDocs);
 
-    const { data: reqFields } = await supabase
-      .from('required_personal_fields')
-      .select('*')
-      .eq('is_active', true)
-      .order('display_order', { ascending: true })
-      .order('created_at', { ascending: true });
+    const { data: reqFields } = await supabase.from('required_personal_fields').select('*').eq('is_active', true).order('display_order', { ascending: true });
     if (reqFields) setRequiredFields(reqFields);
 
-    // 4. Convites & Usuários
-    const { data: invData } = await supabase
-      .from('admission_invites')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const { data: invData } = await supabase.from('admission_invites').select('*').order('created_at', { ascending: false });
     if (invData) setInvites(invData);
 
-    const { data: usersData } = await supabase
-      .from('system_users')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const { data: usersData } = await supabase.from('system_users').select('*').order('created_at', { ascending: false });
     if (usersData) setSystemUsers(usersData);
 
-    // 5. Competências Gerenciadas do DP
-    const { data: compData } = await supabase
-      .from('payroll_competences')
-      .select('*')
-      .order('created_at', { ascending: false });
-
+    const { data: compData } = await supabase.from('payroll_competences').select('*').order('created_at', { ascending: false });
     if (compData && compData.length > 0) {
       setCompetencias(compData);
       if (!competenciaSelecionada) setCompetenciaSelecionada(compData[0].code);
-    } else {
-      const padroes = [
-        { id: '1', title: '10/2026 - Folha Mensal', code: '10/2026', year: 2026 },
-        { id: '2', title: '09/2026 - Folha Mensal', code: '09/2026', year: 2026 },
-        { id: '3', title: '2026 - 1ª Parcela 13º Salário', code: '13_1_2026', year: 2026 },
-        { id: '4', title: '2026 - 2ª Parcela 13º Salário', code: '13_2_2026', year: 2026 }
-      ];
-      setCompetencias(padroes);
-      if (!competenciaSelecionada) setCompetenciaSelecionada(padroes[0].code);
     }
 
-    // 6. Holerites do DP (PAGINADOS: supera o limite de 1.000 do Supabase)
+    const { data: colabData } = await supabase.from('employees').select('*').order('full_name', { ascending: true });
+    if (colabData) setColaboradores(colabData);
+
+    const { data: configPhone } = await supabase.from('system_settings').select('value').eq('key', 'whatsapp_dp_phone').maybeSingle();
+    if (configPhone && configPhone.value) setTelefoneAtendimentoDP(configPhone.value);
+
+    // BUSCA PAGINADA: quebra o limite de 1000 do Supabase
     let todosHolerites = [];
     let inicio = 0;
     const passo = 1000;
-    let continuarBuscando = true;
+    let continuar = true;
 
-    while (continuarBuscando) {
-      const { data: lotePayrolls, error } = await supabase
+    while (continuar) {
+      const { data: lote, error } = await supabase
         .from('employee_payrolls')
         .select('*')
         .range(inicio, inicio + passo - 1)
         .order('created_at', { ascending: false });
 
-      if (error || !lotePayrolls || lotePayrolls.length === 0) {
-        continuarBuscando = false;
+      if (error || !lote || lote.length === 0) {
+        continuar = false;
       } else {
-        todosHolerites = todosHolerites.concat(lotePayrolls);
-        if (lotePayrolls.length < passo) {
-          continuarBuscando = false;
-        } else {
-          inicio += passo;
-        }
+        todosHolerites = todosHolerites.concat(lote);
+        if (lote.length < passo) continuar = false;
+        else inicio += passo;
       }
     }
     setPayrolls(todosHolerites);
-
-    // 7. Base Oficial de Colaboradores (employees)
-    const { data: colabData } = await supabase
-      .from('employees')
-      .select('*')
-      .order('full_name', { ascending: true });
-    if (colabData) setColaboradores(colabData);
-
-    // 8. Telefone de Atendimento do DP
-    const { data: configPhone } = await supabase
-      .from('system_settings')
-      .select('value')
-      .eq('key', 'whatsapp_dp_phone')
-      .maybeSingle();
-
-    if (configPhone && configPhone.value) {
-      setTelefoneAtendimentoDP(configPhone.value);
-    }
   }
-
+  
   useEffect(() => {
     if (usuarioLogado) {
       carregarDados();
@@ -660,50 +613,55 @@ export default function AdminPage() {
     }
   }
 
+  // 2. MOTOR DE FATIAMENTO COM PAUSA E RETOMADA AUTOMÁTICA
   async function handleUploadSeniorHCM(e) {
     e.preventDefault();
     if (!arquivoSenior) {
-      alert('Selecione o arquivo PDF consolidado exportado pelo Senior HCM.');
+      alert('Selecione o arquivo PDF consolidado do Senior HCM.');
       return;
     }
     if (!competenciaSelecionada) {
-      alert('Selecione uma competência ativa antes de importar.');
+      alert('Selecione a competência antes de iniciar.');
       return;
     }
 
-    const confirma = confirm(
-      `⚠️ IMPORTAÇÃO DIRETA DE ALTA VELOCIDADE ⚠️\n\nCompetência: "${competenciaSelecionada}"\nArquivo: "${arquivoSenior.name}"\n\nDeseja iniciar o processamento?`
-    );
-
-    if (!confirma) return;
-
+    setPausarProcessamento(false);
     setProcessandoPdf(true);
-    setStatusProcessamento('Carregando biblioteca do leitor de PDF no navegador...');
+    setStatusProcessamento('Carregando leitor PDF otimizado...');
 
     try {
       if (!window.pdfjsLib) {
         await new Promise((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-          script.onload = () => {
+          const s = document.createElement('script');
+          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+          s.onload = () => {
             window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
             resolve();
           };
-          script.onerror = reject;
-          document.head.appendChild(script);
+          s.onerror = reject;
+          document.head.appendChild(s);
         });
       }
 
-      setStatusProcessamento('Carregando arquivo de 1429 páginas na memória...');
+      setStatusProcessamento('Lendo arquivo PDF na memória...');
       const arrayBuffer = await arquivoSenior.arrayBuffer();
       const pdfJsDoc = await window.pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
       const totalPaginas = pdfJsDoc.numPages;
       const pdfDocOriginal = await PDFDocument.load(arrayBuffer);
 
-      let processadosComSucesso = 0;
+      // Consulta holerites já existentes para retomar de onde parou sem duplicar
+      const { data: holeritesJaSalvos } = await supabase
+        .from('employee_payrolls')
+        .select('cpf')
+        .eq('competence', competenciaSelecionada);
+
+      const cpfsCadastrados = new Set((holeritesJaSalvos || []).map(h => h.cpf));
+
+      let processadosComSucesso = cpfsCadastrados.size;
+      let puladosJaExistentes = 0;
       const paginasIgnoradasLog = [];
 
-      async function processarPaginaIndice(index) {
+      async function processarUmaPagina(index) {
         const pageNum = index + 1;
         try {
           const page = await pdfJsDoc.getPage(pageNum);
@@ -715,7 +673,20 @@ export default function AdminPage() {
             return null;
           }
 
-          // Valida e salva metadados via rota leve (apenas texto, 1 KB)
+          // Extrai CPF localmente para checar se já foi processado antes de fatiar
+          const cpfMatch = pageText.match(/\b(\d{3}\.\d{3}\.\d{3}-\d{2})\b/)
+                        || pageText.match(/(?:CPF|cpf)[^\d]{0,20}(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/i)
+                        || pageText.match(/\b(\d{11})\b/);
+
+          const rawCpf = cpfMatch ? (cpfMatch[1] || cpfMatch[0]).replace(/\D/g, '') : null;
+
+          // Se o colaborador já foi salvo nesta competência em tentativa anterior, pula
+          if (rawCpf && cpfsCadastrados.has(rawCpf)) {
+            puladosJaExistentes++;
+            return { skipped: true, cpf: rawCpf };
+          }
+
+          // Envia texto leve para validar e salvar no banco
           const respMeta = await fetch('/api/dp/process-single-page', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -728,15 +699,15 @@ export default function AdminPage() {
             return null;
           }
 
-          // Fatia página e faz upload DIRETO no Supabase Storage
-          const singlePageDoc = await PDFDocument.create();
-          const [copiedPage] = await singlePageDoc.copyPages(pdfDocOriginal, [index]);
-          singlePageDoc.addPage(copiedPage);
-          const singlePdfBytes = await singlePageDoc.save();
+          // Fatia página e faz upload direto no Storage
+          const singleDoc = await PDFDocument.create();
+          const [copiedPage] = await singleDoc.copyPages(pdfDocOriginal, [index]);
+          singleDoc.addPage(copiedPage);
+          const singleBytes = await singleDoc.save();
 
           const { error: uploadError } = await supabase.storage
             .from('holerites')
-            .upload(metaData.fileName, singlePdfBytes, {
+            .upload(metaData.fileName, singleBytes, {
               contentType: 'application/pdf',
               upsert: true
             });
@@ -746,6 +717,7 @@ export default function AdminPage() {
             return null;
           }
 
+          cpfsCadastrados.add(metaData.cpf);
           processadosComSucesso++;
           return metaData;
         } catch (err) {
@@ -754,34 +726,35 @@ export default function AdminPage() {
         }
       }
 
-      // Validação rápida na página 1
-      setStatusProcessamento('Validando 1º holerite (teste de conexão)...');
-      const testeP1 = await processarPaginaIndice(0);
-      if (!testeP1) {
-        const motivoErro = paginasIgnoradasLog[0]?.motivo || 'Erro ao processar página 1';
-        throw new Error(`Falha no primeiro holerite: ${motivoErro}`);
-      }
+      // Execução concorrente de 15 páginas simultâneas
+      const CONCORRENCIA = 15;
+      const indices = Array.from({ length: totalPaginas }, (_, i) => i);
 
-      // Concorrência de 12 uploads simultâneos
-      const CONCORRENCIA = 12;
-      const indicesRestantes = Array.from({ length: totalPaginas - 1 }, (_, i) => i + 1);
+      for (let i = 0; i < indices.length; i += CONCORRENCIA) {
+        // Verifica se o operador clicou no botão "Pausar"
+        if (window.__pausarFatiamento) {
+          window.__pausarFatiamento = false;
+          setStatusProcessamento(`⏸️ Processamento pausado na página ${i} de ${totalPaginas}.`);
+          await carregarDados();
+          alert(`Processamento pausado com sucesso!\n\n${processadosComSucesso} holerites já estão gravados.\nQuando quiser continuar, clique no botão Fatiar novamente que o sistema retomará de onde parou.`);
+          setProcessandoPdf(false);
+          return;
+        }
 
-      for (let i = 0; i < indicesRestantes.length; i += CONCORRENCIA) {
-        const lote = indicesRestantes.slice(i, i + CONCORRENCIA);
-        await Promise.all(lote.map(idx => processarPaginaIndice(idx)));
+        const lote = indices.slice(i, i + CONCORRENCIA);
+        await Promise.all(lote.map(idx => processarUmaPagina(idx)));
 
-        const atual = Math.min(i + CONCORRENCIA + 1, totalPaginas);
+        const atual = Math.min(i + CONCORRENCIA, totalPaginas);
         const pct = Math.round((atual / totalPaginas) * 100);
-        setStatusProcessamento(`Processando diretamente no Storage: página ${atual} de ${totalPaginas} (${pct}%) • Sucessos: ${processadosComSucesso}...`);
+        setStatusProcessamento(`Fatiando: página ${atual} de ${totalPaginas} (${pct}%) • Salvos: ${processadosComSucesso}...`);
       }
 
-      setStatusProcessamento(`✅ Concluído! ${processadosComSucesso} holerites importados com sucesso.`);
+      setStatusProcessamento(`✅ Finalizado! ${processadosComSucesso} holerites prontos.`);
       setArquivoSenior(null);
       const inputFile = document.getElementById('input-folha-senior');
       if (inputFile) inputFile.value = '';
       await carregarDados();
 
-      // Se houver páginas ignoradas, gera o download de um arquivo .txt de conferência
       if (paginasIgnoradasLog.length > 0) {
         const conteudoLog = paginasIgnoradasLog.map(p => `Página ${p.pagina}: ${p.motivo}`).join('\r\n');
         const blobLog = new Blob([conteudoLog], { type: 'text/plain;charset=utf-8;' });
@@ -796,19 +769,20 @@ export default function AdminPage() {
 
       alert(
         `✅ Processamento Concluído!\n\n` +
-        `• Total de Páginas: ${totalPaginas}\n` +
-        `• Holerites Salvos com Sucesso: ${processadosComSucesso}\n` +
+        `• Total de Páginas no Arquivo: ${totalPaginas}\n` +
+        `• Holerites Salvos / Confirmados: ${processadosComSucesso}\n` +
         `• Páginas Ignoradas: ${paginasIgnoradasLog.length}\n\n` +
-        (paginasIgnoradasLog.length > 0 ? `Um arquivo de texto com a lista das páginas ignoradas foi baixado automaticamente para conferência.` : '')
+        (paginasIgnoradasLog.length > 0 ? `O arquivo com as páginas ignoradas foi baixado para conferência.` : '')
       );
 
     } catch (err) {
       setStatusProcessamento(`❌ ${err.message}`);
-      alert(`Processamento interrompido:\n\n${err.message}`);
+      alert(`Falha no processamento: ${err.message}`);
     } finally {
       setProcessandoPdf(false);
     }
   }
+  
   async function handleLimparTodosHolerites() {
     const confirmacao = prompt(`⚠️ ATENÇÃO: Deseja apagar TODOS os holerites da competência "${competenciaSelecionada}"?\n\nDigite EXCLUIR para confirmar:`);
     if (confirmacao !== 'EXCLUIR') return;
@@ -1661,13 +1635,26 @@ export default function AdminPage() {
                         <b>⚠️ Atenção Operador:</b> Confira se a competência ativa selecionada (<b>{competenciaSelecionada}</b>) confere exatamente com o mês/ano impresso no arquivo que você está enviando.
                       </div>
                     
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                    <button 
+                      type="submit" 
+                      disabled={processandoPdf}
+                      style={{ flex: 1, padding: '11px', background: processandoPdf ? '#64748b' : '#003366', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: processandoPdf ? 'not-allowed' : 'pointer', fontSize: '13.5px' }}
+                    >
+                      {processandoPdf ? 'Processando Páginas...' : '⚡ Fatiar e Importar Folha'}
+                    </button>
+
+                    {processandoPdf && (
                       <button 
-                        type="submit" 
-                        disabled={processandoPdf}
-                        style={{ padding: '11px', background: processandoPdf ? '#64748b' : '#003366', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: processandoPdf ? 'not-allowed' : 'pointer', fontSize: '13.5px' }}
+                        type="button" 
+                        onClick={() => { window.__pausarFatiamento = true; }}
+                        style={{ padding: '11px 16px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
                       >
-                        {processandoPdf ? 'Fatiando Páginas e Salvando...' : '⚡ Fatiar e Importar Folha'}
+                        ⏸️ Pausar
                       </button>
+                    )}
+                  </div>
+                        
                     </form>
 
                     {statusProcessamento && (
