@@ -614,22 +614,42 @@ export default function AdminPage() {
   }
 
   // 2. MOTOR DE FATIAMENTO COM PAUSA E RETOMADA AUTOMÁTICA
-  async function handleUploadSeniorHCM(e) {
+ async function handleUploadSeniorHCM(e) {
     e.preventDefault();
     if (!arquivoSenior) {
       alert('Selecione o arquivo PDF consolidado do Senior HCM.');
       return;
     }
     if (!competenciaSelecionada) {
-      alert('Selecione a competência antes de iniciar.');
+      alert('Selecione uma competência ativa.');
       return;
     }
 
-    setPausarProcessamento(false);
+    const confirma = confirm(
+      `⚡ IMPORTAÇÃO INSTANTÂNEA DA FOLHA ⚡\n\nCompetência: "${competenciaSelecionada}"\nArquivo: "${arquivoSenior.name}"\n\nDeseja iniciar? O processamento levará menos de 1 minuto.`
+    );
+
+    if (!confirma) return;
+
     setProcessandoPdf(true);
-    setStatusProcessamento('Carregando leitor PDF otimizado...');
+    setStatusProcessamento('1/3: Enviando arquivo mestre para o Storage seguro...');
 
     try {
+      const safeComp = competenciaSelecionada.replace('/', '-');
+
+      // 1. Upload do PDF consolidado completo (Uma única requisição de poucos segundos)
+      const { error: uploadError } = await supabase.storage
+        .from('holerites')
+        .upload(`${safeComp}/folha_completa.pdf`, arquivoSenior, {
+          contentType: 'application/pdf',
+          upsert: true
+        });
+
+      if (uploadError) throw new Error(`Falha ao subir folha consolidada: ${uploadError.message}`);
+
+      // 2. Leitura ultrarrápida das páginas pelo PDF.js no navegador
+      setStatusProcessamento('2/3: Mapeando CPFs e matrículas das 1429 páginas...');
+
       if (!window.pdfjsLib) {
         await new Promise((resolve, reject) => {
           const s = document.createElement('script');
@@ -643,144 +663,114 @@ export default function AdminPage() {
         });
       }
 
-      setStatusProcessamento('Lendo arquivo PDF na memória...');
       const arrayBuffer = await arquivoSenior.arrayBuffer();
       const pdfJsDoc = await window.pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
       const totalPaginas = pdfJsDoc.numPages;
-      const pdfDocOriginal = await PDFDocument.load(arrayBuffer);
 
-      // Consulta holerites já existentes para retomar de onde parou sem duplicar
-      const { data: holeritesJaSalvos } = await supabase
-        .from('employee_payrolls')
-        .select('cpf')
-        .eq('competence', competenciaSelecionada);
-
-      const cpfsCadastrados = new Set((holeritesJaSalvos || []).map(h => h.cpf));
-
-      let processadosComSucesso = cpfsCadastrados.size;
-      let puladosJaExistentes = 0;
+      const registrosValidos = [];
       const paginasIgnoradasLog = [];
 
-      async function processarUmaPagina(index) {
-        const pageNum = index + 1;
-        try {
-          const page = await pdfJsDoc.getPage(pageNum);
-          const textContent = await page.getTextContent();
-          const pageText = textContent.items.map(item => item.str).join(' ');
-
-          if (!pageText.trim()) {
-            paginasIgnoradasLog.push({ pagina: pageNum, motivo: 'Página em branco' });
-            return null;
-          }
-
-          // Extrai CPF localmente para checar se já foi processado antes de fatiar
-          const cpfMatch = pageText.match(/\b(\d{3}\.\d{3}\.\d{3}-\d{2})\b/)
-                        || pageText.match(/(?:CPF|cpf)[^\d]{0,20}(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/i)
-                        || pageText.match(/\b(\d{11})\b/);
-
-          const rawCpf = cpfMatch ? (cpfMatch[1] || cpfMatch[0]).replace(/\D/g, '') : null;
-
-          // Se o colaborador já foi salvo nesta competência em tentativa anterior, pula
-          if (rawCpf && cpfsCadastrados.has(rawCpf)) {
-            puladosJaExistentes++;
-            return { skipped: true, cpf: rawCpf };
-          }
-
-          // Envia texto leve para validar e salvar no banco
-          const respMeta = await fetch('/api/dp/process-single-page', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pageText, competence: competenciaSelecionada })
-          });
-
-          const metaData = await respMeta.json();
-          if (!respMeta.ok || !metaData.success) {
-            paginasIgnoradasLog.push({ pagina: pageNum, motivo: metaData.error || 'Sem CPF identificado' });
-            return null;
-          }
-
-          // Fatia página e faz upload direto no Storage
-          const singleDoc = await PDFDocument.create();
-          const [copiedPage] = await singleDoc.copyPages(pdfDocOriginal, [index]);
-          singleDoc.addPage(copiedPage);
-          const singleBytes = await singleDoc.save();
-
-          const { error: uploadError } = await supabase.storage
-            .from('holerites')
-            .upload(metaData.fileName, singleBytes, {
-              contentType: 'application/pdf',
-              upsert: true
-            });
-
-          if (uploadError) {
-            paginasIgnoradasLog.push({ pagina: pageNum, motivo: `Erro Storage: ${uploadError.message}` });
-            return null;
-          }
-
-          cpfsCadastrados.add(metaData.cpf);
-          processadosComSucesso++;
-          return metaData;
-        } catch (err) {
-          paginasIgnoradasLog.push({ pagina: pageNum, motivo: err.message });
-          return null;
-        }
-      }
-
-      // Execução concorrente de 15 páginas simultâneas
-      const CONCORRENCIA = 15;
-      const indices = Array.from({ length: totalPaginas }, (_, i) => i);
-
-      for (let i = 0; i < indices.length; i += CONCORRENCIA) {
-        // Verifica se o operador clicou no botão "Pausar"
-        if (window.__pausarFatiamento) {
-          window.__pausarFatiamento = false;
-          setStatusProcessamento(`⏸️ Processamento pausado na página ${i} de ${totalPaginas}.`);
-          await carregarDados();
-          alert(`Processamento pausado com sucesso!\n\n${processadosComSucesso} holerites já estão gravados.\nQuando quiser continuar, clique no botão Fatiar novamente que o sistema retomará de onde parou.`);
-          setProcessandoPdf(false);
-          return;
+      for (let i = 1; i <= totalPaginas; i++) {
+        if (i % 50 === 0 || i === totalPaginas) {
+          setStatusProcessamento(`2/3: Lendo páginas (${i} de ${totalPaginas})...`);
         }
 
-        const lote = indices.slice(i, i + CONCORRENCIA);
-        await Promise.all(lote.map(idx => processarUmaPagina(idx)));
+        const page = await pdfJsDoc.getPage(i);
+        const textContent = await page.getTextContent();
+        const flatText = textContent.items.map(item => item.str).join(' ');
 
-        const atual = Math.min(i + CONCORRENCIA, totalPaginas);
-        const pct = Math.round((atual / totalPaginas) * 100);
-        setStatusProcessamento(`Fatiando: página ${atual} de ${totalPaginas} (${pct}%) • Salvos: ${processadosComSucesso}...`);
+        // Regex do CPF
+        const cpfMatch = flatText.match(/\b(\d{3}\.\d{3}\.\d{3}-\d{2})\b/)
+                      || flatText.match(/(?:CPF|cpf)[^\d]{0,20}(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/i)
+                      || flatText.match(/\b(\d{11})\b/);
+
+        const rawCpf = cpfMatch ? (cpfMatch[1] || cpfMatch[0]).replace(/\D/g, '') : null;
+
+        if (!rawCpf || rawCpf.length !== 11) {
+          paginasIgnoradasLog.push({ pagina: i, motivo: 'Página sem CPF de colaborador' });
+          continue;
+        }
+
+        // Regex da Matrícula (Com ponto ou 5 dígitos puro como 25150)
+        let matricula = null;
+        const matchPonto = flatText.match(/\b(\d{1,6}\.\d{4,8})\b/);
+        if (matchPonto) {
+          matricula = matchPonto[1].trim();
+        } else {
+          const matchSimples = flatText.match(/\b(\d{4,7})\s+[A-ZÀ-Ú]/);
+          if (matchSimples) matricula = matchSimples[1].trim();
+        }
+
+        // Nome
+        let nomeEncontrado = 'Colaborador';
+        const matchNome = flatText.match(/([A-ZÀ-Ú][A-ZÀ-Ú\s]{3,60}?)\s*\d{2}\/\d{2}\/\d{4}/);
+        if (matchNome && matchNome[1]) {
+          nomeEncontrado = matchNome[1].trim();
+        }
+
+        registrosValidos.push({
+          cpf: rawCpf,
+          nome: nomeEncontrado,
+          matricula: matricula,
+          pageNumber: i
+        });
       }
 
-      setStatusProcessamento(`✅ Finalizado! ${processadosComSucesso} holerites prontos.`);
+      // 3. Gravação em lote no banco
+      setStatusProcessamento(`3/3: Salvando ${registrosValidos.length} colaboradores no banco...`);
+
+      const respIndex = await fetch('/api/dp/index-full-payroll', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          registros: registrosValidos,
+          competence: competenciaSelecionada
+        })
+      });
+
+      const resJson = await respIndex.json();
+      if (!respIndex.ok || !resJson.success) {
+        throw new Error(resJson.error || 'Erro ao gravar registros no banco');
+      }
+
+      setStatusProcessamento(`✅ Concluído! ${registrosValidos.length} holerites disponíveis.`);
       setArquivoSenior(null);
       const inputFile = document.getElementById('input-folha-senior');
       if (inputFile) inputFile.value = '';
       await carregarDados();
 
+      // Download de log se houver páginas ignoradas
       if (paginasIgnoradasLog.length > 0) {
         const conteudoLog = paginasIgnoradasLog.map(p => `Página ${p.pagina}: ${p.motivo}`).join('\r\n');
         const blobLog = new Blob([conteudoLog], { type: 'text/plain;charset=utf-8;' });
         const urlLog = URL.createObjectURL(blobLog);
         const link = document.createElement('a');
         link.href = urlLog;
-        link.setAttribute('download', `paginas_ignoradas_${competenciaSelecionada.replace('/', '-')}.txt`);
+        link.setAttribute('download', `paginas_ignoradas_${safeComp}.txt`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
       }
 
       alert(
-        `✅ Processamento Concluído!\n\n` +
-        `• Total de Páginas no Arquivo: ${totalPaginas}\n` +
-        `• Holerites Salvos / Confirmados: ${processadosComSucesso}\n` +
-        `• Páginas Ignoradas: ${paginasIgnoradasLog.length}\n\n` +
-        (paginasIgnoradasLog.length > 0 ? `O arquivo com as páginas ignoradas foi baixado para conferência.` : '')
+        `✅ Importação Concluída em Segundos!\n\n` +
+        `• Total de Páginas: ${totalPaginas}\n` +
+        `• Holerites Ativados: ${registrosValidos.length}\n` +
+        `• Páginas Ignoradas: ${paginasIgnoradasLog.length}`
       );
 
     } catch (err) {
       setStatusProcessamento(`❌ ${err.message}`);
-      alert(`Falha no processamento: ${err.message}`);
+      alert(`Falha na importação: ${err.message}`);
     } finally {
       setProcessandoPdf(false);
     }
+  }
+
+  // 4. Visualizar PDF instantâneo pelo Admin
+  async function handleVisualizarPdf(item) {
+    const url = `/api/dp/get-pdf?cpf=${item.cpf}&competence=${encodeURIComponent(item.competence)}`;
+    window.open(url, '_blank');
   }
   
   async function handleLimparTodosHolerites() {
