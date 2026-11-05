@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import pdfParse from 'pdf-parse';
 import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
@@ -48,29 +47,15 @@ export async function POST(request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    
-    if (!supabaseUrl || !supabaseKey) {
-      return NextResponse.json({ error: 'Configuração do Supabase ausente.' }, { status: 500 });
-    }
-
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const formData = await request.formData();
-    const file = formData.get('file');
-    const competence = formData.get('competence') || '';
+    const { pageText, competence } = await request.json();
 
-    if (!file || !competence) {
-      return NextResponse.json({ error: 'Arquivo ou competência não enviados.' }, { status: 400 });
+    if (!pageText || !competence) {
+      return NextResponse.json({ error: 'Texto da página ou competência não informados.' }, { status: 400 });
     }
 
-    const singlePdfBytes = Buffer.from(await file.arrayBuffer());
-    const parsedText = await pdfParse(singlePdfBytes);
-    const pageText = parsedText.text || '';
-
-    // Regex abrangente para localizar o CPF no relatório Senior HCM:
-    // 1. Formato pontuado clássico: 000.000.000-00
-    // 2. Após a palavra CPF com espaços ou quebras
-    // 3. Sequência de 11 dígitos numéricos isolados
+    // Extração do CPF
     const cpfMatch = pageText.match(/\b(\d{3}\.\d{3}\.\d{3}-\d{2})\b/)
                   || pageText.match(/(?:CPF|cpf)[^\d]{0,20}(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/i)
                   || pageText.match(/\b(\d{11})\b/);
@@ -78,31 +63,15 @@ export async function POST(request) {
     const rawCpf = cpfMatch ? (cpfMatch[1] || cpfMatch[0]).replace(/\D/g, '') : null;
 
     if (!rawCpf || rawCpf.length !== 11) {
-      // Devolve uma amostra do texto lido para diagnóstico imediato no alerta
-      const previewTexto = pageText.slice(0, 300).replace(/\s+/g, ' ');
-      return NextResponse.json({ 
-        error: `CPF não encontrado na página. Texto extraído: "${previewTexto}"` 
-      }, { status: 422 });
+      const preview = pageText.slice(0, 200).replace(/\s+/g, ' ');
+      return NextResponse.json({ error: `CPF não encontrado. Amostra: "${preview}"` }, { status: 422 });
     }
 
     const { matricula, nomeEncontrado } = extrairCabecalhoSenior(pageText);
-
-    // Salvar no bucket privado
     const safeCompetence = competence.replace('/', '-');
     const fileName = `${safeCompetence}/${rawCpf}.pdf`;
 
-    const { error: uploadError } = await supabase.storage
-      .from('holerites')
-      .upload(fileName, singlePdfBytes, {
-        contentType: 'application/pdf',
-        upsert: true
-      });
-
-    if (uploadError) {
-      return NextResponse.json({ error: `Falha no Supabase Storage: ${uploadError.message}` }, { status: 500 });
-    }
-
-    // Salvar na tabela employee_payrolls
+    // Atualiza metadados no banco de dados
     const { error: dbError } = await supabase
       .from('employee_payrolls')
       .upsert({
@@ -115,11 +84,16 @@ export async function POST(request) {
       }, { onConflict: 'cpf,competence' });
 
     if (dbError) {
-      return NextResponse.json({ error: `Falha no banco: ${dbError.message}` }, { status: 500 });
+      return NextResponse.json({ error: dbError.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, cpf: rawCpf, name: nomeEncontrado });
-  } catch (error) {
-    return NextResponse.json({ error: error.message || 'Erro interno no processamento.' }, { status: 500 });
+    return NextResponse.json({ 
+      success: true, 
+      cpf: rawCpf, 
+      name: nomeEncontrado,
+      fileName 
+    });
+  } catch (err) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
