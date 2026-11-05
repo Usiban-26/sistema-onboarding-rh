@@ -653,55 +653,90 @@ export default function AdminPage() {
     }
 
     const confirma = confirm(
-      `⚠️ IMPORTAÇÃO DA FOLHA COMPLETA ⚠️\n\nCompetência: "${competenciaSelecionada}"\nArquivo: "${arquivoSenior.name}"\n\nDeseja iniciar o processamento?`
+      `⚠️ IMPORTAÇÃO DIRETA DE ALTA VELOCIDADE ⚠️\n\nCompetência: "${competenciaSelecionada}"\nArquivo: "${arquivoSenior.name}"\n\nDeseja iniciar o processamento?`
     );
 
     if (!confirma) return;
 
     setProcessandoPdf(true);
-    setStatusProcessamento('A carregar o PDF no navegador...');
+    setStatusProcessamento('Carregando biblioteca do leitor de PDF no navegador...');
 
     try {
-      const arrayBuffer = await arquivoSenior.arrayBuffer();
-      const pdfDocOriginal = await PDFDocument.load(arrayBuffer);
-      const totalPaginas = pdfDocOriginal.getPageCount();
+      // Carrega o motor PDF.js nativo via CDN dinâmico no navegador se ainda não existir
+      if (!window.pdfjsLib) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+          script.onload = () => {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            resolve();
+          };
+          script.onerror = reject;
+          document.head.appendChild(script);
+        });
+      }
 
+      setStatusProcessamento('Carregando arquivo de 1429 páginas na memória...');
+      const arrayBuffer = await arquivoSenior.arrayBuffer();
+
+      // Carrega no PDF.js para extração instantânea de texto
+      const pdfJsDoc = await window.pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
+      const totalPaginas = pdfJsDoc.numPages;
+
+      // Carrega no pdf-lib para fatiar o binário
+      const pdfDocOriginal = await PDFDocument.load(arrayBuffer);
+
+      // Função que processa uma página de ponta a ponta
       async function processarPaginaIndice(index) {
+        // 1. Extrai o texto da página no próprio navegador
+        const page = await pdfJsDoc.getPage(index + 1);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map(item => item.str).join(' ');
+
+        // 2. Valida CPF e metadados via API leve (apenas texto, 1 KB de dados)
+        const respMeta = await fetch('/api/dp/process-single-page', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pageText, competence: competenciaSelecionada })
+        });
+
+        const metaData = await respMeta.json();
+        if (!respMeta.ok || !metaData.success) {
+          throw new Error(`Página ${index + 1}: ${metaData.error || 'Falha ao validar texto'}`);
+        }
+
+        // 3. Fatia a página e sobe DIRETO para o Supabase Storage (sem limite da Vercel)
         const singlePageDoc = await PDFDocument.create();
         const [copiedPage] = await singlePageDoc.copyPages(pdfDocOriginal, [index]);
         singlePageDoc.addPage(copiedPage);
         const singlePdfBytes = await singlePageDoc.save();
 
-        const blob = new Blob([singlePdfBytes], { type: 'application/pdf' });
-        const formData = new FormData();
-        formData.append('file', blob, `page_${index + 1}.pdf`);
-        formData.append('competence', competenciaSelecionada);
+        const { error: uploadError } = await supabase.storage
+          .from('holerites')
+          .upload(metaData.fileName, singlePdfBytes, {
+            contentType: 'application/pdf',
+            upsert: true
+          });
 
-        const resp = await fetch('/api/dp/process-single-page', {
-          method: 'POST',
-          body: formData,
-        });
-
-        const data = await resp.json();
-        if (!resp.ok || !data.success) {
-          throw new Error(`Página ${index + 1}: ${data.error || 'Falha ao processar'}`);
+        if (uploadError) {
+          throw new Error(`Página ${index + 1}: Erro no upload Storage - ${uploadError.message}`);
         }
-        return data;
+
+        return metaData;
       }
 
-      // ETAPA 1: TESTE NA PÁGINA 1 (Fail-Fast)
-      // Se a página 1 falhar, o processo aborta de imediato em 2 segundos
-      setStatusProcessamento('A validar o 1º holerite...');
+      // TESTE PILOTO NA PÁGINA 1 (Fail-Fast: aborta em 2 segundos se algo estiver errado)
+      setStatusProcessamento('Validando 1º holerite (teste de conexão)...');
       try {
         await processarPaginaIndice(0);
       } catch (errPrimeira) {
         throw new Error(`Interrompido na 1ª página:\n${errPrimeira.message}`);
       }
 
-      // ETAPA 2: PROCESSAMENTO PARALELO (Lotes de 6 páginas em simultâneo)
+      // PROCESSAMENTO EM PARALELO (Pool de 8 páginas simultâneas diretas no Supabase)
       let processadosComSucesso = 1;
       let ignorados = 0;
-      const CONCORRENCIA = 6;
+      const CONCORRENCIA = 8;
       const indicesRestantes = Array.from({ length: totalPaginas - 1 }, (_, i) => i + 1);
 
       for (let i = 0; i < indicesRestantes.length; i += CONCORRENCIA) {
@@ -720,19 +755,19 @@ export default function AdminPage() {
 
         const atual = Math.min(i + CONCORRENCIA + 1, totalPaginas);
         const pct = Math.round((atual / totalPaginas) * 100);
-        setStatusProcessamento(`A processar em paralelo: página ${atual} de ${totalPaginas} (${pct}%)...`);
+        setStatusProcessamento(`Processando diretamente no Storage: página ${atual} de ${totalPaginas} (${pct}%)...`);
       }
 
-      setStatusProcessamento(`✅ Concluído! ${processadosComSucesso} holerites importados.`);
+      setStatusProcessamento(`✅ Concluído! ${processadosComSucesso} holerites importados com sucesso.`);
       setArquivoSenior(null);
       const inputFile = document.getElementById('input-folha-senior');
       if (inputFile) inputFile.value = '';
       carregarDados();
-      alert(`✅ Sucesso!\n\nHolerites importados: ${processadosComSucesso}\nPáginas ignoradas: ${ignorados}`);
+      alert(`✅ Sucesso na Importação!\n\nTotal de páginas: ${totalPaginas}\nHolerites fatiados e salvos: ${processadosComSucesso}\nPáginas ignoradas: ${ignorados}`);
 
     } catch (err) {
       setStatusProcessamento(`❌ ${err.message}`);
-      alert(`Atenção: O processo parou para não perder tempo:\n\n${err.message}`);
+      alert(`Processamento interrompido:\n\n${err.message}`);
     } finally {
       setProcessandoPdf(false);
     }
