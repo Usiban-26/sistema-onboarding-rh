@@ -653,36 +653,28 @@ export default function AdminPage() {
     }
 
     const confirma = confirm(
-      `⚠️ CONFERÊNCIA OBRIGATÓRIA DE COMPETÊNCIA ⚠️\n\nVocê está prestes a importar os holerites para a competência:\n👉 "${competenciaSelecionada}"\n\nArquivo selecionado: "${arquivoSenior.name}"\n\nConfirma o processamento?`
+      `⚠️ IMPORTAÇÃO DA FOLHA COMPLETA ⚠️\n\nCompetência: "${competenciaSelecionada}"\nArquivo: "${arquivoSenior.name}"\n\nDeseja iniciar o processamento?`
     );
 
     if (!confirma) return;
 
     setProcessandoPdf(true);
-    setStatusProcessamento('Carregando PDF completo no navegador...');
+    setStatusProcessamento('A carregar o PDF no navegador...');
 
     try {
       const arrayBuffer = await arquivoSenior.arrayBuffer();
       const pdfDocOriginal = await PDFDocument.load(arrayBuffer);
       const totalPaginas = pdfDocOriginal.getPageCount();
 
-      let processadosComSucesso = 0;
-      let ignorados = 0;
-
-      setStatusProcessamento(`Iniciando fatiamento de ${totalPaginas} páginas...`);
-
-      for (let i = 0; i < totalPaginas; i++) {
-        setStatusProcessamento(`Processando página ${i + 1} de ${totalPaginas} (${Math.round(((i + 1) / totalPaginas) * 100)}%)...`);
-
-        // Cria PDF de página única no navegador
+      async function processarPaginaIndice(index) {
         const singlePageDoc = await PDFDocument.create();
-        const [copiedPage] = await singlePageDoc.copyPages(pdfDocOriginal, [i]);
+        const [copiedPage] = await singlePageDoc.copyPages(pdfDocOriginal, [index]);
         singlePageDoc.addPage(copiedPage);
         const singlePdfBytes = await singlePageDoc.save();
 
         const blob = new Blob([singlePdfBytes], { type: 'application/pdf' });
         const formData = new FormData();
-        formData.append('file', blob, `page_${i + 1}.pdf`);
+        formData.append('file', blob, `page_${index + 1}.pdf`);
         formData.append('competence', competenciaSelecionada);
 
         const resp = await fetch('/api/dp/process-single-page', {
@@ -690,30 +682,60 @@ export default function AdminPage() {
           body: formData,
         });
 
-        if (resp.ok) {
-          const resultado = await resp.json();
-          if (resultado.success) {
-            processadosComSucesso++;
-          } else {
-            ignorados++;
-          }
-        } else {
-          ignorados++;
+        const data = await resp.json();
+        if (!resp.ok || !data.success) {
+          throw new Error(`Página ${index + 1}: ${data.error || 'Falha ao processar'}`);
         }
+        return data;
       }
 
-      setStatusProcessamento(`✅ Concluído! ${processadosComSucesso} holerites importados com sucesso.`);
+      // ETAPA 1: TESTE NA PÁGINA 1 (Fail-Fast)
+      // Se a página 1 falhar, o processo aborta de imediato em 2 segundos
+      setStatusProcessamento('A validar o 1º holerite...');
+      try {
+        await processarPaginaIndice(0);
+      } catch (errPrimeira) {
+        throw new Error(`Interrompido na 1ª página:\n${errPrimeira.message}`);
+      }
+
+      // ETAPA 2: PROCESSAMENTO PARALELO (Lotes de 6 páginas em simultâneo)
+      let processadosComSucesso = 1;
+      let ignorados = 0;
+      const CONCORRENCIA = 6;
+      const indicesRestantes = Array.from({ length: totalPaginas - 1 }, (_, i) => i + 1);
+
+      for (let i = 0; i < indicesRestantes.length; i += CONCORRENCIA) {
+        const lote = indicesRestantes.slice(i, i + CONCORRENCIA);
+
+        await Promise.all(
+          lote.map(async (pageIdx) => {
+            try {
+              await processarPaginaIndice(pageIdx);
+              processadosComSucesso++;
+            } catch (errItem) {
+              ignorados++;
+            }
+          })
+        );
+
+        const atual = Math.min(i + CONCORRENCIA + 1, totalPaginas);
+        const pct = Math.round((atual / totalPaginas) * 100);
+        setStatusProcessamento(`A processar em paralelo: página ${atual} de ${totalPaginas} (${pct}%)...`);
+      }
+
+      setStatusProcessamento(`✅ Concluído! ${processadosComSucesso} holerites importados.`);
       setArquivoSenior(null);
       const inputFile = document.getElementById('input-folha-senior');
       if (inputFile) inputFile.value = '';
       carregarDados();
-      alert(`✅ Processamento Concluído!\n\nTotal de páginas: ${totalPaginas}\nHolerites salvos: ${processadosComSucesso}\nPáginas ignoradas/sem CPF: ${ignorados}`);
-    } catch (err) {
-      setStatusProcessamento(`Falha no processamento: ${err.message}`);
-      alert('Erro ao processar PDF: ' + err.message);
-    }
+      alert(`✅ Sucesso!\n\nHolerites importados: ${processadosComSucesso}\nPáginas ignoradas: ${ignorados}`);
 
-    setProcessandoPdf(false);
+    } catch (err) {
+      setStatusProcessamento(`❌ ${err.message}`);
+      alert(`Atenção: O processo parou para não perder tempo:\n\n${err.message}`);
+    } finally {
+      setProcessandoPdf(false);
+    }
   }
 
   async function handleLimparTodosHolerites() {
