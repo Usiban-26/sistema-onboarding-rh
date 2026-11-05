@@ -41,24 +41,18 @@ function extrairCabecalhoSenior(pageText) {
     }
   }
 
-  if (nomeEncontrado === 'Colaborador' && matricula) {
-    const regexAposMatricula = new RegExp(matricula.replace('.', '\\.') + '\\s*([A-ZÀ-Ú][A-ZÀ-Ú\\s]{3,50})');
-    const matchAlt = textoLinear.match(regexAposMatricula);
-    if (matchAlt && matchAlt[1]) {
-      const nomeLimpo = sanitizarNome(matchAlt[1]);
-      if (nomeLimpo.length >= 3) {
-        nomeEncontrado = nomeLimpo;
-      }
-    }
-  }
-
   return { matricula, nomeEncontrado };
 }
 
 export async function POST(request) {
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    if (!supabaseUrl || !supabaseKey) {
+      return NextResponse.json({ error: 'Configuração do Supabase ausente.' }, { status: 500 });
+    }
+
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const formData = await request.formData();
@@ -66,76 +60,66 @@ export async function POST(request) {
     const competence = formData.get('competence') || '';
 
     if (!file || !competence) {
-      return NextResponse.json({ error: 'Parâmetros incompletos.' }, { status: 400 });
+      return NextResponse.json({ error: 'Arquivo ou competência não enviados.' }, { status: 400 });
     }
 
     const singlePdfBytes = Buffer.from(await file.arrayBuffer());
     const parsedText = await pdfParse(singlePdfBytes);
-    const pageText = parsedText.text;
+    const pageText = parsedText.text || '';
 
-    // Extração do CPF
-    const cpfMatch = pageText.match(/(?:CPF|cpf)[^\d]*(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/i)
-                  || pageText.match(/\d{3}\.\d{3}\.\d{3}-\d{2}/)
-                  || pageText.match(/(?:\D|^)(\d{11})(?:\D|$)/);
+    // Regex abrangente para localizar o CPF no relatório Senior HCM:
+    // 1. Formato pontuado clássico: 000.000.000-00
+    // 2. Após a palavra CPF com espaços ou quebras
+    // 3. Sequência de 11 dígitos numéricos isolados
+    const cpfMatch = pageText.match(/\b(\d{3}\.\d{3}\.\d{3}-\d{2})\b/)
+                  || pageText.match(/(?:CPF|cpf)[^\d]{0,20}(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/i)
+                  || pageText.match(/\b(\d{11})\b/);
 
     const rawCpf = cpfMatch ? (cpfMatch[1] || cpfMatch[0]).replace(/\D/g, '') : null;
 
     if (!rawCpf || rawCpf.length !== 11) {
-      return NextResponse.json({ skipped: true, reason: 'CPF não identificado' });
+      // Devolve uma amostra do texto lido para diagnóstico imediato no alerta
+      const previewTexto = pageText.slice(0, 300).replace(/\s+/g, ' ');
+      return NextResponse.json({ 
+        error: `CPF não encontrado na página. Texto extraído: "${previewTexto}"` 
+      }, { status: 422 });
     }
 
     const { matricula, nomeEncontrado } = extrairCabecalhoSenior(pageText);
 
-    // Salvar arquivo no Supabase Storage
+    // Salvar no bucket privado
     const safeCompetence = competence.replace('/', '-');
     const fileName = `${safeCompetence}/${rawCpf}.pdf`;
 
-    await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from('holerites')
       .upload(fileName, singlePdfBytes, {
         contentType: 'application/pdf',
         upsert: true
       });
 
-    const { data: publicUrlData } = supabase.storage
-      .from('holerites')
-      .getPublicUrl(fileName);
+    if (uploadError) {
+      return NextResponse.json({ error: `Falha no Supabase Storage: ${uploadError.message}` }, { status: 500 });
+    }
 
-    // Upsert no banco de dados
-    const { data: existente } = await supabase
+    // Salvar na tabela employee_payrolls
+    const { error: dbError } = await supabase
       .from('employee_payrolls')
-      .select('id')
-      .eq('cpf', rawCpf)
-      .eq('competence', competence)
-      .maybeSingle();
+      .upsert({
+        cpf: rawCpf,
+        employee_name: nomeEncontrado,
+        registration_number: matricula,
+        competence: competence,
+        file_url: fileName,
+        status: 'Pendente'
+      }, { onConflict: 'cpf,competence' });
 
-    if (existente) {
-      await supabase
-        .from('employee_payrolls')
-        .update({
-          employee_name: nomeEncontrado,
-          registration_number: matricula,
-          file_url: publicUrlData.publicUrl,
-          status: 'Pendente'
-        })
-        .eq('id', existente.id);
-    } else {
-      await supabase
-        .from('employee_payrolls')
-        .insert([
-          {
-            employee_name: nomeEncontrado,
-            cpf: rawCpf,
-            registration_number: matricula,
-            competence: competence,
-            file_url: publicUrlData.publicUrl,
-            status: 'Pendente'
-          }
-        ]);
+    if (dbError) {
+      return NextResponse.json({ error: `Falha no banco: ${dbError.message}` }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, cpf: rawCpf, name: nomeEncontrado });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Erro interno no processamento.' }, { status: 500 });
   }
 }
