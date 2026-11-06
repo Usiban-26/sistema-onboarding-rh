@@ -720,10 +720,10 @@ export default function AdminPage() {
                         || flatText.match(/CADASTRO([\s\S]*?)CARGO/i);
         const textoCabecalho = matchBloco ? matchBloco[1] : flatText;
 
-        // Pega qualquer número ou formato pontuado que venha após CADASTRO / NOME
-        const matchMatricula = textoCabecalho.match(/\b(\d{1,6}\.\d{4,8})\b/) // Pontuada (101.014698)
-                            || textoCabecalho.match(/(?:CADASTRO|Cadastro)\s*[:.-]?\s*(\d{4,7})\b/) // Logo após palavra CADASTRO
-                            || textoCabecalho.match(/\b(\d{4,7})\s+[A-ZÀ-Ú]/); // Número de 4 a 7 dígitos antes do nome
+       // Pega qualquer número ou formato pontuado (4 a 10 dígitos para cobrir matrículas como 22527 e 101014323)
+        const matchMatricula = textoCabecalho.match(/\b(\d{1,6}\.\d{4,8})\b/)
+                            || textoCabecalho.match(/(?:CADASTRO|Cadastro)\s*[:.-]?\s*(\d{4,10})\b/)
+                            || textoCabecalho.match(/\b(\d{4,10})\s+[A-ZÀ-Ú]/);
 
         if (matchMatricula) {
           matricula = (matchMatricula[1] || matchMatricula[0]).replace(/[^\d.]/g, '').trim();
@@ -739,9 +739,9 @@ export default function AdminPage() {
           }
         }
 
-        // Se não tiver nem CPF nem Matrícula, aí sim é página descartada
-        if (!rawCpf && !matricula) {
-          paginasIgnoradasLog.push({ pagina: i, motivo: 'Página sem CPF e sem Matrícula identificável' });
+        // Se não tiver CPF, nem Matrícula e nem Nome, aí sim descarta a página
+        if (!rawCpf && !matricula && nomeEncontrado === 'Colaborador') {
+          paginasIgnoradasLog.push({ pagina: i, motivo: 'Página sem CPF, sem Matrícula e sem Nome' });
           continue;
         }
 
