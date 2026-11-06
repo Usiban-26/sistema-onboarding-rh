@@ -826,20 +826,9 @@ export default function AdminPage() {
     carregarDados();
   }
 
-  async function handleVisualizarPdf(item) {
-    const safeComp = item.competence.replace('/', '-');
-    const filePath = `${safeComp}/${item.cpf}.pdf`;
-
-    const { data, error } = await supabase.storage
-      .from('holerites')
-      .createSignedUrl(filePath, 300);
-
-    if (error || !data?.signedUrl) {
-      alert('Erro ao gerar visualização do PDF. Verifique se o bucket "holerites" contém o arquivo.');
-      return;
-    }
-
-    window.open(data.signedUrl, '_blank');
+  function handleVisualizarPdf(item) {
+    const url = `/api/dp/get-pdf?cpf=${item.cpf}&competence=${encodeURIComponent(item.competence)}`;
+    window.open(url, '_blank');
   }
 
   function obterContatoPorCpf(cpf) {
