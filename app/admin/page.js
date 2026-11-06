@@ -93,7 +93,7 @@ export default function AdminPage() {
   // Estado para controle de pausa/cancelamento
   const [pausarProcessamento, setPausarProcessamento] = useState(false);
 
-  // 1. CARREGAMENTO COMPLETO (PAGINADO ACIMA DE 1.000 REGISTROS)
+  // 1. CARREGAR DADOS COM SUPORTE ACIMA DE 1.000 REGISTROS (EMPREGADOS E HOLERITES)
   async function carregarDados() {
     const { data: candData } = await supabase.from('onboarding_candidates').select('*').order('created_at', { ascending: false });
     if (candData) setCandidates(candData);
@@ -126,31 +126,50 @@ export default function AdminPage() {
       if (!competenciaSelecionada) setCompetenciaSelecionada(compData[0].code);
     }
 
-    const { data: colabData } = await supabase.from('employees').select('*').order('full_name', { ascending: true });
-    if (colabData) setColaboradores(colabData);
-
     const { data: configPhone } = await supabase.from('system_settings').select('value').eq('key', 'whatsapp_dp_phone').maybeSingle();
     if (configPhone && configPhone.value) setTelefoneAtendimentoDP(configPhone.value);
 
-    // BUSCA PAGINADA: quebra o limite de 1000 do Supabase
-    let todosHolerites = [];
-    let inicio = 0;
+    // BUSCA PAGINADA DE COLABORADORES (Supera o limite de 1000)
+    let todosColabs = [];
+    let inicioColab = 0;
     const passo = 1000;
-    let continuar = true;
+    let continuarColab = true;
 
-    while (continuar) {
-      const { data: lote, error } = await supabase
+    while (continuarColab) {
+      const { data: loteColab, error: errColab } = await supabase
+        .from('employees')
+        .select('*')
+        .range(inicioColab, inicioColab + passo - 1)
+        .order('full_name', { ascending: true });
+
+      if (errColab || !loteColab || loteColab.length === 0) {
+        continuarColab = false;
+      } else {
+        todosColabs = todosColabs.concat(loteColab);
+        if (loteColab.length < passo) continuarColab = false;
+        else inicioColab += passo;
+      }
+    }
+    setColaboradores(todosColabs);
+
+    // BUSCA PAGINADA DE HOLERITES (Supera o limite de 1000)
+    let todosHolerites = [];
+    let inicioHol = 0;
+    let continuarHol = true;
+
+    while (continuarHol) {
+      const { data: loteHol, error: errHol } = await supabase
         .from('employee_payrolls')
         .select('*')
-        .range(inicio, inicio + passo - 1)
+        .range(inicioHol, inicioHol + passo - 1)
         .order('created_at', { ascending: false });
 
-      if (error || !lote || lote.length === 0) {
-        continuar = false;
+      if (errHol || !loteHol || loteHol.length === 0) {
+        continuarHol = false;
       } else {
-        todosHolerites = todosHolerites.concat(lote);
-        if (lote.length < passo) continuar = false;
-        else inicio += passo;
+        todosHolerites = todosHolerites.concat(loteHol);
+        if (loteHol.length < passo) continuarHol = false;
+        else inicioHol += passo;
       }
     }
     setPayrolls(todosHolerites);
@@ -613,8 +632,8 @@ export default function AdminPage() {
     }
   }
 
-  // 2. MOTOR DE FATIAMENTO COM PAUSA E RETOMADA AUTOMÁTICA
- async function handleUploadSeniorHCM(e) {
+  // 2. IMPORTAÇÃO INSTANTÂNEA COM SUPORTE A MATRÍCULA DE 5 DÍGITOS E LÍQUIDO ZERADO
+  async function handleUploadSeniorHCM(e) {
     e.preventDefault();
     if (!arquivoSenior) {
       alert('Selecione o arquivo PDF consolidado do Senior HCM.');
@@ -626,18 +645,18 @@ export default function AdminPage() {
     }
 
     const confirma = confirm(
-      `⚡ IMPORTAÇÃO INSTANTÂNEA DA FOLHA ⚡\n\nCompetência: "${competenciaSelecionada}"\nArquivo: "${arquivoSenior.name}"\n\nDeseja iniciar? O processamento levará menos de 1 minuto.`
+      `⚡ IMPORTAÇÃO INSTANTÂNEA DA FOLHA ⚡\n\nCompetência: "${competenciaSelecionada}"\nArquivo: "${arquivoSenior.name}"\n\nDeseja iniciar?`
     );
 
     if (!confirma) return;
 
     setProcessandoPdf(true);
-    setStatusProcessamento('1/3: Enviando arquivo mestre para o Storage seguro...');
+    setStatusProcessamento('1/3: Enviando arquivo mestre consolidado para o Storage...');
 
     try {
       const safeComp = competenciaSelecionada.replace('/', '-');
 
-      // 1. Upload do PDF consolidado completo (Uma única requisição de poucos segundos)
+      // 1. Upload do PDF completo (Uma única chamada rápida)
       const { error: uploadError } = await supabase.storage
         .from('holerites')
         .upload(`${safeComp}/folha_completa.pdf`, arquivoSenior, {
@@ -645,10 +664,10 @@ export default function AdminPage() {
           upsert: true
         });
 
-      if (uploadError) throw new Error(`Falha ao subir folha consolidada: ${uploadError.message}`);
+      if (uploadError) throw new Error(`Falha no upload Storage: ${uploadError.message}`);
 
-      // 2. Leitura ultrarrápida das páginas pelo PDF.js no navegador
-      setStatusProcessamento('2/3: Mapeando CPFs e matrículas das 1429 páginas...');
+      // 2. Mapeamento ultrarrápido das páginas pelo navegador
+      setStatusProcessamento('2/3: Lendo e mapeando as páginas da folha...');
 
       if (!window.pdfjsLib) {
         await new Promise((resolve, reject) => {
@@ -667,79 +686,103 @@ export default function AdminPage() {
       const pdfJsDoc = await window.pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
       const totalPaginas = pdfJsDoc.numPages;
 
-      const registrosValidos = [];
+      const registrosPaginas = [];
       const paginasIgnoradasLog = [];
 
       for (let i = 1; i <= totalPaginas; i++) {
-        if (i % 50 === 0 || i === totalPaginas) {
-          setStatusProcessamento(`2/3: Lendo páginas (${i} de ${totalPaginas})...`);
+        if (i % 100 === 0 || i === totalPaginas) {
+          setStatusProcessamento(`2/3: Mapeando página ${i} de ${totalPaginas}...`);
         }
 
         const page = await pdfJsDoc.getPage(i);
         const textContent = await page.getTextContent();
         const flatText = textContent.items.map(item => item.str).join(' ');
 
-        // Regex do CPF
-        const cpfMatch = flatText.match(/\b(\d{3}\.\d{3}\.\d{3}-\d{2})\b/)
-                      || flatText.match(/(?:CPF|cpf)[^\d]{0,20}(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/i)
-                      || flatText.match(/\b(\d{11})\b/);
-
-        const rawCpf = cpfMatch ? (cpfMatch[1] || cpfMatch[0]).replace(/\D/g, '') : null;
-
-        if (!rawCpf || rawCpf.length !== 11) {
-          paginasIgnoradasLog.push({ pagina: i, motivo: 'Página sem CPF de colaborador' });
+        // Se for folha de capa/resumo totalmente fora do padrão de recibo
+        if (!flatText.includes('Demonstrativo de Pagamento') && !flatText.includes('BANDEIRANTES')) {
+          paginasIgnoradasLog.push({ pagina: i, motivo: 'Página sem formato de recibo (Capa ou Relatório Resumo)' });
           continue;
         }
 
-        // Regex da Matrícula (Com ponto ou 5 dígitos puro como 25150)
+        // Extração do CPF no rodapé (pode estar ausente se líquido zerado)
+        const cpfMatch = flatText.match(/\b(\d{3}\.\d{3}\.\d{3}-\d{2})\b/)
+                      || flatText.match(/(?:CPF|cpf)[^\d]{0,20}(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/i)
+                      || flatText.match(/(?:CPF|portador do CPF)\s*(\d{11})\b/i);
+
+        const rawCpf = cpfMatch ? (cpfMatch[1] || cpfMatch[0]).replace(/\D/g, '') : null;
+
+        // RESOLUÇÃO DO ITEM 3: Extração precisa da Matrícula de 5 dígitos (ex: 25150) ou pontuada (ex: 101.014698)
         let matricula = null;
-        const matchPonto = flatText.match(/\b(\d{1,6}\.\d{4,8})\b/);
-        if (matchPonto) {
-          matricula = matchPonto[1].trim();
-        } else {
-          const matchSimples = flatText.match(/\b(\d{4,7})\s+[A-ZÀ-Ú]/);
-          if (matchSimples) matricula = matchSimples[1].trim();
+
+        // Isola o trecho do cabeçalho abaixo do CNPJ e antes de CARGO
+        const matchBloco = flatText.match(/75\.619\.056\/0001-28([\s\S]*?)CARGO/i) 
+                        || flatText.match(/CADASTRO([\s\S]*?)CARGO/i);
+        const textoCabecalho = matchBloco ? matchBloco[1] : flatText;
+
+        // Pega qualquer número ou formato pontuado que venha após CADASTRO / NOME
+        const matchMatricula = textoCabecalho.match(/\b(\d{1,6}\.\d{4,8})\b/) // Pontuada (101.014698)
+                            || textoCabecalho.match(/(?:CADASTRO|Cadastro)\s*[:.-]?\s*(\d{4,7})\b/) // Logo após palavra CADASTRO
+                            || textoCabecalho.match(/\b(\d{4,7})\s+[A-ZÀ-Ú]/); // Número de 4 a 7 dígitos antes do nome
+
+        if (matchMatricula) {
+          matricula = (matchMatricula[1] || matchMatricula[0]).replace(/[^\d.]/g, '').trim();
         }
 
-        // Nome
+        // Extração do Nome
         let nomeEncontrado = 'Colaborador';
         const matchNome = flatText.match(/([A-ZÀ-Ú][A-ZÀ-Ú\s]{3,60}?)\s*\d{2}\/\d{2}\/\d{4}/);
         if (matchNome && matchNome[1]) {
-          nomeEncontrado = matchNome[1].trim();
+          const nLimpo = matchNome[1].replace(/^(CADASTRO|NOME|EMPRESA)\s*/gi, '').trim();
+          if (nLimpo.length >= 3 && !nLimpo.includes('BANDEIRANTES')) {
+            nomeEncontrado = nLimpo;
+          }
         }
 
-        registrosValidos.push({
-          cpf: rawCpf,
-          nome: nomeEncontrado,
+        // Se não tiver nem CPF nem Matrícula, aí sim é página descartada
+        if (!rawCpf && !matricula) {
+          paginasIgnoradasLog.push({ pagina: i, motivo: 'Página sem CPF e sem Matrícula identificável' });
+          continue;
+        }
+
+        registrosPaginas.push({
+          cpf: rawCpf, // Pode ser null se for líquido zerado
           matricula: matricula,
+          nome: nomeEncontrado,
           pageNumber: i
         });
       }
 
-      // 3. Gravação em lote no banco
-      setStatusProcessamento(`3/3: Salvando ${registrosValidos.length} colaboradores no banco...`);
+      // 3. Grava e cruza no banco
+      setStatusProcessamento(`3/3: Cruzando dados e ativando ${registrosPaginas.length} holerites...`);
 
       const respIndex = await fetch('/api/dp/index-full-payroll', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          registros: registrosValidos,
+          registros: registrosPaginas,
           competence: competenciaSelecionada
         })
       });
 
       const resJson = await respIndex.json();
       if (!respIndex.ok || !resJson.success) {
-        throw new Error(resJson.error || 'Erro ao gravar registros no banco');
+        throw new Error(resJson.error || 'Erro ao sincronizar holerites');
       }
 
-      setStatusProcessamento(`✅ Concluído! ${registrosValidos.length} holerites disponíveis.`);
+      // Adiciona ao log os eventuais holerites zerados que não foram encontrados na tabela employees
+      if (resJson.naoIdentificados && resJson.naoIdentificados.length > 0) {
+        resJson.naoIdentificados.forEach(ni => {
+          paginasIgnoradasLog.push({ pagina: ni.pagina, motivo: `${ni.motivo} (Matrícula: ${ni.matricula})` });
+        });
+      }
+
+      setStatusProcessamento(`✅ Concluído! ${resJson.totalSalvos} holerites disponíveis.`);
       setArquivoSenior(null);
       const inputFile = document.getElementById('input-folha-senior');
       if (inputFile) inputFile.value = '';
       await carregarDados();
 
-      // Download de log se houver páginas ignoradas
+      // Download do log de páginas ignoradas se houver
       if (paginasIgnoradasLog.length > 0) {
         const conteudoLog = paginasIgnoradasLog.map(p => `Página ${p.pagina}: ${p.motivo}`).join('\r\n');
         const blobLog = new Blob([conteudoLog], { type: 'text/plain;charset=utf-8;' });
@@ -753,10 +796,10 @@ export default function AdminPage() {
       }
 
       alert(
-        `✅ Importação Concluída em Segundos!\n\n` +
-        `• Total de Páginas: ${totalPaginas}\n` +
-        `• Holerites Ativados: ${registrosValidos.length}\n` +
-        `• Páginas Ignoradas: ${paginasIgnoradasLog.length}`
+        `✅ Importação Concluída com Sucesso!\n\n` +
+        `• Total de Páginas Lidas: ${totalPaginas}\n` +
+        `• Holerites Ativados no Portal: ${resJson.totalSalvos}\n` +
+        `• Páginas Ignoradas / Capas: ${paginasIgnoradasLog.length}`
       );
 
     } catch (err) {
