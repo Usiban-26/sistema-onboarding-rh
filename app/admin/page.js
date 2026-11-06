@@ -38,6 +38,7 @@ export default function AdminPage() {
   // Base Oficial de Colaboradores (DP)
   const [colaboradores, setColaboradores] = useState([]);
   const [buscaColaborador, setBuscaColaborador] = useState('');
+  const [buscaHolerite, setBuscaHolerite] = useState('');
   const [mensagemConvitePortal, setMensagemConvitePortal] = useState(
     `Olá {NOME}, informamos que a Usina Bandeirante (USIBAN) disponibilizou a nova *Central do Colaborador*.\n\nAtravés dela, você pode:\n📄 *Consultar seus Demonstrativos de Pagamento (Holerites)* de forma prática e segura.\n💬 *Falar diretamente com o Departamento Pessoal* para tirar dúvidas sobre férias, contracheque e benefícios.\n\n👉 *Acesse pelo link oficial:*\n${LINK_MEU_HOLERITE}\n\nPara acessar, basta informar o seu CPF e validar o código de uso único (OTP) enviado para o seu WhatsApp.`
   );
@@ -978,9 +979,18 @@ export default function AdminPage() {
 
   const anosDisponiveis = Array.from(new Set(competencias.map(c => c.year || 2026))).sort((a, b) => b - a);
   const competenciasDoAno = competencias.filter(c => Number(c.year) === Number(anoFiltro));
-  const holeritesFiltrados = payrolls.filter(p => p.competence === competenciaSelecionada);
-  const totalEnviados = holeritesFiltrados.filter(p => p.status === 'Enviado').length;
-  const totalPendentes = holeritesFiltrados.filter(p => p.status !== 'Enviado').length;
+  const holeritesFiltrados = payrolls.filter(p => {
+    if (p.competence !== competenciaSelecionada) return false;
+    if (!buscaHolerite) return true;
+    const termo = buscaHolerite.toLowerCase();
+    return (
+      p.employee_name?.toLowerCase().includes(termo) ||
+      p.cpf?.includes(termo) ||
+      p.registration_number?.toLowerCase().includes(termo)
+    );
+  });
+  const totalEnviados = payrolls.filter(p => p.competence === competenciaSelecionada && p.status === 'Enviado').length;
+  const totalPendentes = payrolls.filter(p => p.competence === competenciaSelecionada && p.status !== 'Enviado').length;
 
   const colaboradoresFiltrados = colaboradores.filter(c => {
     const busca = buscaColaborador.toLowerCase();
@@ -1731,14 +1741,40 @@ export default function AdminPage() {
                   </div>
                 </div>
 
-                <h3 style={{ color: '#003366', margin: '24px 0 12px 0' }}>Holerites da Competência ({holeritesFiltrados.length})</h3>
+               {/* Cabeçalho da Listagem com Campo de Pesquisa */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '28px 0 14px 0', flexWrap: 'wrap', gap: '10px' }}>
+                  <h3 style={{ color: '#003366', margin: 0, fontSize: '17px' }}>
+                    Holerites da Competência ({holeritesFiltrados.length})
+                  </h3>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <input
+                      type="text"
+                      placeholder="🔍 Buscar por nome, CPF ou matrícula..."
+                      value={buscaHolerite}
+                      onChange={e => setBuscaHolerite(e.target.value)}
+                      style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', width: '270px', fontSize: '13px' }}
+                    />
+                    {buscaHolerite && (
+                      <button
+                        onClick={() => setBuscaHolerite('')}
+                        style={{ padding: '8px 10px', background: '#e2e8f0', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', color: '#475569', fontWeight: 'bold' }}
+                        title="Limpar pesquisa"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </div>
 
                 {holeritesFiltrados.length === 0 ? (
                   <p style={{ color: '#64748b', fontSize: '13.5px', background: '#f8fafc', padding: '16px', borderRadius: '6px', textAlign: 'center' }}>
-                    Nenhum holerite cadastrado para {competenciaSelecionada}. Carregue o PDF acima.
+                    {buscaHolerite 
+                      ? `Nenhum holerite encontrado para a pesquisa "${buscaHolerite}".`
+                      : `Nenhum holerite cadastrado para ${competenciaSelecionada}. Carregue o PDF acima.`}
                   </p>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '520px', overflowY: 'auto', paddingRight: '4px' }}>
                     {holeritesFiltrados.map((item, idx) => (
                       <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', flexWrap: 'wrap', gap: '10px' }}>
                         <div>
@@ -1782,6 +1818,9 @@ export default function AdminPage() {
                     ))}
                   </div>
                 )}
+
+
+                  
               </div>
             </div>
           )}
