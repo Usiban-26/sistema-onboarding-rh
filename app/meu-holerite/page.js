@@ -199,15 +199,20 @@ export default function MeuHoleritePage() {
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', color: '#334155', marginBottom: '6px' }}>
                   Digite o código recebido:
                 </label>
+                  
                 <input
                   type="text"
-                  maxLength={6}
-                  placeholder="123456"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder=""
                   value={codigoOtp}
-                  onChange={e => setCodigoOtp(e.target.value.replace(/\D/g, ''))}
-                  required
-                  style={{ width: '100%', boxSizing: 'border-box', padding: '12px 14px', borderRadius: '8px', border: '2px solid #0c5e31', fontSize: '20px', letterSpacing: '6px', textAlign: 'center', fontWeight: 'bold' }}
+                  onChange={e => setCodigoOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  maxLength={6}
+                  autoFocus
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '12px', fontSize: '22px', textAlign: 'center', letterSpacing: '8px', borderRadius: '8px', border: '2px solid #0c5e31', fontWeight: 'bold', background: '#fff' }}
                 />
+
+                
               </div>
 
               {erro && (
