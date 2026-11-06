@@ -141,24 +141,14 @@ export async function PUT(request) {
       .eq('cpf', rawCpf)
       .maybeSingle();
 
-    // Gera Signed URLs com expiração em 15 minutos (900s)
-    const holeritesProtegidos = [];
-    for (const h of (payrolls || [])) {
-      const safeComp = h.competence.replace('/', '-');
-      const filePath = `${safeComp}/${rawCpf}.pdf`;
-
-      const { data: signedData } = await supabase.storage
-        .from('holerites')
-        .createSignedUrl(filePath, 900);
-
-      holeritesProtegidos.push({
-        id: h.id,
-        competence: h.competence,
-        employee_name: emp?.full_name || h.employee_name,
-        registration_number: h.registration_number,
-        file_url: signedData ? signedData.signedUrl : null
-      });
-    }
+    // Gera links protegidos sob demanda para a nova rota /api/dp/get-pdf
+    const holeritesProtegidos = (payrolls || []).map(h => ({
+      id: h.id,
+      competence: h.competence,
+      employee_name: emp?.full_name || h.employee_name,
+      registration_number: h.registration_number,
+      file_url: `/api/dp/get-pdf?cpf=${rawCpf}&competence=${encodeURIComponent(h.competence)}`
+    }));
 
     return NextResponse.json({
       success: true,
