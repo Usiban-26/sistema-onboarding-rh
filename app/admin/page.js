@@ -818,11 +818,25 @@ export default function AdminPage() {
   }
   
   async function handleLimparTodosHolerites() {
-    const confirmacao = prompt(`⚠️ ATENÇÃO: Deseja apagar TODOS os holerites da competência "${competenciaSelecionada}"?\n\nDigite EXCLUIR para confirmar:`);
+    const confirmacao = prompt(`⚠️ ATENÇÃO: Deseja apagar TODOS os holerites e arquivos da competência "${competenciaSelecionada}"?\n\nDigite EXCLUIR para confirmar:`);
     if (confirmacao !== 'EXCLUIR') return;
 
+    const safeComp = competenciaSelecionada.replace('/', '-');
+
+    // 1. Remove os arquivos físicos da competência no Storage
+    const { data: arquivos } = await supabase.storage
+      .from('holerites')
+      .list(safeComp);
+
+    if (arquivos && arquivos.length > 0) {
+      const pathsParaRemover = arquivos.map(arq => `${safeComp}/${arq.name}`);
+      await supabase.storage.from('holerites').remove(pathsParaRemover);
+    }
+
+    // 2. Remove os metadados do banco de dados
     await supabase.from('employee_payrolls').delete().eq('competence', competenciaSelecionada);
-    alert('Holerites da competência removidos.');
+
+    alert('Holerites e arquivos da competência removidos com sucesso.');
     carregarDados();
   }
 
